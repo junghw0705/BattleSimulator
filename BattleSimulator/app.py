@@ -1,922 +1,2334 @@
-import os
-import sys
-import random
+import csv
+import html
+import io
 import math
+import os
+import random
+import sys
+import zipfile
+
 import pandas as pd
 import streamlit as st
-import plotly.graph_objects as go
+from openpyxl import Workbook
 
-# Add current directory to path
-current_dir = os.path.dirname(os.path.abspath(__file__))
-if current_dir not in sys.path:
-    sys.path.insert(0, current_dir)
 
-from data_loader import DataLoader
-from models import TrainConfig, CoachSlot, TurretConfig, EnemyGroupConfig
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+if CURRENT_DIR not in sys.path:
+    sys.path.insert(0, CURRENT_DIR)
+
 from battle_engine import BattleSimulationEngine
+from data_loader import DataLoader
+from models import EnemyGroupConfig, TrainConfig, TurretConfig
+
 
 # ==============================================================================
-# PAGE CONFIGURATION & DARK STUDIO THEME
+# PAGE CONFIGURATION / DESKTOP THEME
 # ==============================================================================
 st.set_page_config(
-    page_title="Siecletrain Visual Battle Simulator",
+    page_title="Siecletrain - 전투 시뮬레이터",
     page_icon="🚂",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="collapsed",
 )
 
-st.markdown("""
+st.markdown(
+    """
 <style>
-    /* Global Base */
+    :root {
+        --bg: #0b0f19;
+        --panel: #0f172a;
+        --panel-2: #1e293b;
+        --line: #334155;
+        --muted: #94a3b8;
+        --text: #f1f5f9;
+        --indigo: #6366f1;
+        --green: #10b981;
+        --cyan: #06b6d4;
+        --amber: #f59e0b;
+        --red: #ef4444;
+    }
+
     .stApp {
-        background-color: #0f172a;
-        color: #f1f5f9;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    }
-    
-    /* Top Header Banner */
-    .header-banner {
-        background: linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%);
-        border: 1px solid #4f46e5;
-        border-radius: 10px;
-        padding: 14px 20px;
-        margin-bottom: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-    }
-    .header-title {
-        font-size: 22px;
-        font-weight: 800;
-        color: #a5b4fc;
-        margin: 0;
-        letter-spacing: -0.5px;
-    }
-    .header-desc {
+        background: var(--bg);
+        color: var(--text);
+        font-family: "Segoe UI", "Malgun Gothic", sans-serif;
         font-size: 12px;
-        color: #94a3b8;
-        margin: 2px 0 0 0;
     }
+    .block-container {
+        max-width: none;
+        padding: .35rem .45rem 1rem .45rem;
+    }
+    header[data-testid="stHeader"] {
+        height: 0;
+        background: transparent;
+    }
+    #MainMenu, footer { visibility: hidden; }
 
-    /* Section Containers */
-    .section-head {
-        font-size: 15px;
+    .app-title {
+        color: #818cf8;
+        font-size: 14px;
         font-weight: 800;
-        color: #f8fafc;
-        margin-bottom: 10px;
-        display: flex;
-        align-items: center;
-        gap: 6px;
+        line-height: 2.35rem;
+        padding-left: .15rem;
+        white-space: nowrap;
     }
-
-    /* Info Badge Grid */
-    .info-card {
-        background-color: #0f172a;
-        border: 1px solid #334155;
-        border-radius: 8px;
-        padding: 10px 12px;
-        margin: 6px 0 10px 0;
-    }
-    .info-card-title {
-        font-size: 13px;
-        font-weight: 700;
-        color: #38bdf8;
-        margin-bottom: 6px;
-        border-bottom: 1px solid #1e293b;
-        padding-bottom: 3px;
-    }
-    .info-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
-        gap: 6px;
-    }
-    .info-item {
+    .group-title {
+        color: #818cf8;
+        background: var(--panel-2);
+        display: inline-block;
+        border-radius: 3px;
+        padding: 2px 6px;
         font-size: 11px;
-        background-color: #1e293b;
-        padding: 4px 6px;
-        border-radius: 4px;
-        border: 1px solid #334155;
+        font-weight: 800;
+        margin-bottom: 6px;
     }
-    .info-label { color: #94a3b8; }
-    .info-val { color: #f8fafc; font-weight: 700; }
+    .section-caption {
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 700;
+        margin-bottom: 5px;
+    }
+    .selected-title {
+        color: var(--green);
+        font-size: 12px;
+        font-weight: 800;
+        margin: 2px 0 6px 0;
+    }
+    .hint {
+        color: var(--muted);
+        font-size: 10.5px;
+    }
+    .mono-box {
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        color: #e2e8f0;
+        font-family: Consolas, "Malgun Gothic", monospace;
+        font-size: 10.5px;
+        line-height: 1.45;
+        padding: 7px 8px;
+        white-space: pre-wrap;
+    }
+    .stat-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 4px;
+        margin-bottom: 6px;
+    }
+    .stat-card {
+        background: var(--panel-2);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        min-height: 48px;
+        padding: 5px 7px;
+    }
+    .stat-label {
+        color: var(--muted);
+        font-size: 9.5px;
+        font-weight: 700;
+    }
+    .stat-value {
+        color: #f8fafc;
+        font-size: 12.5px;
+        font-weight: 800;
+        margin-top: 2px;
+    }
+    .enemy-summary {
+        background: var(--panel-2);
+        border: 1px solid #7f1d1d;
+        border-radius: 6px;
+        padding: 7px;
+        margin: 5px 0;
+        color: #fecaca;
+        font-weight: 700;
+        font-size: 11px;
+    }
+    .result-box {
+        background: #052e2b;
+        border: 1px solid var(--green);
+        border-radius: 6px;
+        padding: 8px;
+        margin-top: 6px;
+    }
+    .danger-text { color: #f87171; }
+    .success-text { color: #34d399; }
+    .cyan-text { color: #38bdf8; }
+    .amber-text { color: #fbbf24; }
 
-    /* Tabs Styling */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        background: var(--panel);
+        border-color: #1e293b !important;
+        border-radius: 6px;
+    }
+    div[data-testid="stMetric"] {
+        background: var(--panel-2);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 6px 8px;
+    }
+    div[data-testid="stMetricLabel"] p {
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 700;
+    }
+    div[data-testid="stMetricValue"] {
+        font-size: 15px;
+    }
+    div[data-testid="stMetricDelta"] {
+        font-size: 9.5px;
+    }
+
     .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
+        gap: 3px;
+        margin-bottom: 3px;
     }
     .stTabs [data-baseweb="tab"] {
-        padding: 8px 18px;
-        font-size: 13px;
-        font-weight: 700;
-        border-radius: 8px 8px 0 0;
-        background-color: #1e293b;
-        color: #94a3b8;
-        border: 1px solid #334155;
-        border-bottom: none;
+        height: 34px;
+        padding: 6px 14px;
+        background: var(--panel-2);
+        border-radius: 5px 5px 0 0;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 800;
     }
     .stTabs [aria-selected="true"] {
-        background-color: #4f46e5 !important;
-        color: #ffffff !important;
-        border-color: #6366f1 !important;
+        background: var(--indigo) !important;
+        color: white !important;
     }
 
-    /* Buttons */
-    div.stButton > button {
-        border-radius: 6px;
-        font-weight: 600;
+    .stButton > button, .stDownloadButton > button {
+        min-height: 28px;
+        padding: 3px 8px;
+        border: 0;
+        border-radius: 4px;
+        background: #4f46e5;
+        color: white;
+        font-size: 10.5px;
+        font-weight: 800;
+    }
+    .stButton > button:hover, .stDownloadButton > button:hover {
+        border: 0;
+        background: #6366f1;
+        color: white;
+    }
+    .stButton > button[kind="primary"] {
+        background: #059669;
+    }
+    .stButton > button[kind="primary"]:hover {
+        background: #10b981;
+    }
+    div[data-testid="stSelectbox"] label,
+    div[data-testid="stNumberInput"] label,
+    div[data-testid="stTextInput"] label,
+    div[data-testid="stSlider"] label {
+        color: #cbd5e1;
+        font-size: 10.5px;
+        font-weight: 700;
+    }
+    div[data-baseweb="select"] > div,
+    div[data-testid="stNumberInput"] input,
+    div[data-testid="stTextInput"] input {
+        min-height: 30px;
+        background: var(--panel-2);
+        border-color: var(--line);
+        color: #f8fafc;
+        font-size: 10.5px;
+    }
+    div[data-testid="stDataFrame"] {
+        border: 1px solid #1e293b;
+        border-radius: 4px;
+    }
+    .stAlert {
+        padding: 7px 9px;
+        font-size: 10.5px;
+    }
+    hr {
+        border-color: #1e293b;
+        margin: 7px 0;
     }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
+
 
 # ==============================================================================
-# SESSION STATE INITIALIZATION
+# HELPERS / SESSION STATE
 # ==============================================================================
+def esc(value):
+    return html.escape(str(value if value is not None else "-"))
+
+
+def fmt_num(value, digits=0):
+    try:
+        number = float(value or 0)
+        return f"{number:,.{digits}f}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def stat_cards(cards):
+    body = "".join(
+        f'<div class="stat-card"><div class="stat-label">{esc(label)}</div>'
+        f'<div class="stat-value" style="color:{color}">{esc(value)}</div></div>'
+        for label, value, color in cards
+    )
+    st.markdown(f'<div class="stat-grid">{body}</div>', unsafe_allow_html=True)
+
+
+def set_flash(level, message):
+    st.session_state.flash_message = (level, message)
+
+
+def show_flash():
+    flash = st.session_state.pop("flash_message", None)
+    if not flash:
+        return
+    level, message = flash
+    getattr(st, level, st.info)(message)
+
+
+def build_data_maps(loader):
+    return {
+        "locomotives": {
+            r["locomotiveId"]: r
+            for r in loader.get_sheet_data("Locomotive")
+            if r.get("locomotiveId")
+        },
+        "couches": {
+            r["couchId"]: r
+            for r in loader.get_sheet_data("Couch")
+            if r.get("couchId")
+        },
+        "engines": {
+            r["engineId"]: r
+            for r in loader.get_sheet_data("Engine")
+            if r.get("engineId")
+        },
+        "generators": {
+            r["generatorId"]: r
+            for r in loader.get_sheet_data("Generator")
+            if r.get("generatorId")
+        },
+        "brakes": {
+            r["breakId"]: r
+            for r in loader.get_sheet_data("Break")
+            if r.get("breakId")
+        },
+        "crews": {
+            r["crewId"]: r
+            for r in loader.get_sheet_data("Crew")
+            if r.get("crewId")
+        },
+        "weapons": {
+            r["weaponId"]: r
+            for r in loader.get_sheet_data("Weapon")
+            if r.get("weaponId")
+        },
+        "monsters": {
+            r["monsterId"]: r
+            for r in loader.get_sheet_data("MonsterData")
+            if r.get("monsterId")
+        },
+        "battle_areas": {
+            r["battleAreaId"]: r
+            for r in loader.get_sheet_data("BattleArea")
+            if r.get("battleAreaId")
+        },
+    }
+
+
+def normalize_selected_index():
+    max_index = len(st.session_state.train_config.coaches)
+    st.session_state.selected_coach_idx = max(
+        0, min(int(st.session_state.selected_coach_idx), max_index)
+    )
+
+
+def sync_part(attr_name, widget_key, data_map):
+    selected_id = st.session_state.get(widget_key)
+    setattr(st.session_state.train_config, attr_name, data_map.get(selected_id))
+
+
+def sync_selected_row():
+    st.session_state.selected_coach_idx = int(
+        st.session_state.get("coach_row_selector", 0)
+    )
+
+
+def sync_crew_level(slot, widget_key):
+    slot.set_crew_level(st.session_state[widget_key])
+
+
+def sync_point_rate(widget_key):
+    st.session_state.train_config.set_crew_point_rate(st.session_state[widget_key])
+
+
+def sync_crew_points(slot, atk_key, def_key, prod_key):
+    slot.set_crew_points(
+        st.session_state[atk_key],
+        st.session_state[def_key],
+        st.session_state[prod_key],
+    )
+
+
+def apply_battle_area(area_id, battle_areas_map, monsters_map, loader, enemy_config):
+    if not area_id:
+        return 0
+    area_record = battle_areas_map.get(area_id, {})
+    level_id = area_record.get("battleLevelId") or area_id
+    enemy_config.clear()
+    enemy_config.selected_battle_area_id = area_id
+    count = 0
+    for spawn in loader.get_sheet_data("SpawnData"):
+        target_level = spawn.get("levelId")
+        if target_level and target_level in (level_id, area_id):
+            monster_id = spawn.get("levelSpawnMonsterId")
+            if monster_id in monsters_map:
+                current = enemy_config.monster_counts.get(monster_id, 0)
+                enemy_config.set_monster_count(monster_id, current + 1)
+                count += 1
+    return count
+
+
+def combat_meta_text(summary, train_config, enemy_config, monsters_map):
+    lines = []
+    if summary:
+        lines.append(
+            "• 전투 결과: "
+            f"{summary['result']} | 소요 시간: {summary['duration']}초 | "
+            f"가한 총 피해량: {summary['total_damage_dealt']} | "
+            f"처치 몬스터: {summary['total_kills']}마리"
+        )
+    lines.append("")
+    lines.append("[1. 트레인 구성 정보 (Train Setup)]")
+    lines.extend(f"  {line}" for line in train_config.get_config_details())
+    lines.append("")
+    lines.append("[2. 적 군단 구성 정보 (Enemy Army Setup)]")
+    lines.extend(
+        f"  {line}" for line in enemy_config.get_config_details(monsters_map)
+    )
+    return "\n".join(lines)
+
+
+def combat_log_dataframe(engine):
+    columns = [
+        "시간(sec)",
+        "이벤트",
+        "공격자/주체",
+        "피해자/대상",
+        "피해량",
+        "남은 HP",
+        "상세 내용",
+    ]
+    records = []
+    for entry in engine.combat_logs:
+        records.append(
+            {
+                "시간(sec)": entry["time"],
+                "이벤트": entry["event_type"],
+                "공격자/주체": entry["attacker"],
+                "피해자/대상": entry["target"],
+                "피해량": entry["damage"],
+                "남은 HP": entry["target_hp"],
+                "상세 내용": entry["details"],
+            }
+        )
+    return pd.DataFrame(records, columns=columns)
+
+
+def build_excel_report(summary, meta_text, log_df):
+    workbook = Workbook()
+    log_sheet = workbook.active
+    log_sheet.title = "전투로그데이터"
+    log_sheet.append(list(log_df.columns))
+    for row in log_df.itertuples(index=False, name=None):
+        log_sheet.append(list(row))
+
+    config_sheet = workbook.create_sheet("트레인및적구성정보")
+    config_sheet.append(["구분", "항목", "상세 내용 및 수치"])
+    config_sheet.append(["시뮬레이션결과", "전투 결과", summary["result"]])
+    config_sheet.append(["시뮬레이션결과", "소요 시간", summary["duration"]])
+    config_sheet.append(
+        ["시뮬레이션결과", "가한 총 피해량", summary["total_damage_dealt"]]
+    )
+    config_sheet.append(
+        ["시뮬레이션결과", "처치 몬스터 수", summary["total_kills"]]
+    )
+    config_sheet.append(["시뮬레이션결과", "총 이벤트 로그 수", summary["log_count"]])
+    config_sheet.append([])
+    for line in meta_text.splitlines():
+        config_sheet.append(["구성 정보", line])
+
+    for sheet in (log_sheet, config_sheet):
+        sheet.freeze_panes = "A2"
+        for column_cells in sheet.columns:
+            max_length = max(
+                len(str(cell.value)) if cell.value is not None else 0
+                for cell in column_cells
+            )
+            sheet.column_dimensions[column_cells[0].column_letter].width = min(
+                max(max_length + 2, 11), 60
+            )
+
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
+
+
+def build_csv_zip(meta_text, log_df):
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "combat_log_전투로그.csv",
+            log_df.to_csv(index=False).encode("utf-8-sig"),
+        )
+        config_buffer = io.StringIO()
+        writer = csv.writer(config_buffer)
+        writer.writerow(["SIECLETRAIN BATTLE SIMULATION LOG & CONFIGURATION REPORT"])
+        for line in meta_text.splitlines():
+            writer.writerow([line])
+        archive.writestr(
+            "combat_log_구성정보.csv",
+            config_buffer.getvalue().encode("utf-8-sig"),
+        )
+    return buffer.getvalue()
+
+
+def percentile(sorted_values, ratio):
+    index = int(len(sorted_values) * ratio)
+    return sorted_values[min(index, len(sorted_values) - 1)]
+
+
+def arrow_safe_dataframe(frame):
+    """Prevent mixed Excel value types (for example int + '#N/A') from upsetting Arrow."""
+    safe_frame = frame.copy()
+    for column in safe_frame.columns:
+        if safe_frame[column].dtype == "object":
+            safe_frame[column] = safe_frame[column].map(
+                lambda value: None if value is None else str(value)
+            )
+    return safe_frame
+
+
 if "loader" not in st.session_state:
     st.session_state.loader = DataLoader()
-
 if "train_config" not in st.session_state:
     st.session_state.train_config = TrainConfig()
-
 if "enemy_config" not in st.session_state:
     st.session_state.enemy_config = EnemyGroupConfig()
-
+if "turret_config" not in st.session_state:
+    st.session_state.turret_config = TurretConfig(max_slots_per_coach=4)
 if "selected_coach_idx" not in st.session_state:
     st.session_state.selected_coach_idx = 0
-
 if "last_battle_result" not in st.session_state:
     st.session_state.last_battle_result = None
-
 if "last_crew_sim_result" not in st.session_state:
     st.session_state.last_crew_sim_result = None
 
 loader = st.session_state.loader
 train_config = st.session_state.train_config
 enemy_config = st.session_state.enemy_config
+turret_config = st.session_state.turret_config
 
-# Helper data maps
-locomotives_map = {r["locomotiveId"]: r for r in loader.get_sheet_data("Locomotive") if r.get("locomotiveId")}
-couches_map = {r["couchId"]: r for r in loader.get_sheet_data("Couch") if r.get("couchId")}
-engines_map = {r["engineId"]: r for r in loader.get_sheet_data("Engine") if r.get("engineId")}
-generators_map = {r["generatorId"]: r for r in loader.get_sheet_data("Generator") if r.get("generatorId")}
-brakes_map = {r["breakId"]: r for r in loader.get_sheet_data("Break") if r.get("breakId")}
-crews_map = {r["crewId"]: r for r in loader.get_sheet_data("Crew") if r.get("crewId")}
-weapons_map = {r["weaponId"]: r for r in loader.get_sheet_data("Weapon") if r.get("weaponId")}
-monsters_map = {r["monsterId"]: r for r in loader.get_sheet_data("MonsterData") if r.get("monsterId")}
-battle_areas_map = {r["battleAreaId"]: r for r in loader.get_sheet_data("BattleArea") if r.get("battleAreaId")}
+maps = build_data_maps(loader)
+locomotives_map = maps["locomotives"]
+couches_map = maps["couches"]
+engines_map = maps["engines"]
+generators_map = maps["generators"]
+brakes_map = maps["brakes"]
+crews_map = maps["crews"]
+weapons_map = maps["weapons"]
+monsters_map = maps["monsters"]
+battle_areas_map = maps["battle_areas"]
 
-# Default Locomotive setup
-if not train_config.locomotive and locomotives_map:
-    first_loco = list(locomotives_map.values())[0]
-    train_config.locomotive = first_loco
+normalize_selected_index()
 
-# ==============================================================================
-# TOP APP HEADER
-# ==============================================================================
-col_h1, col_h2 = st.columns([3.5, 1])
-with col_h1:
-    st.markdown("""
-    <div class="header-banner">
-        <div>
-            <p class="header-title">🚂 SIECLETRAIN VISUAL BATTLE SIMULATOR</p>
-            <p class="header-desc">데이터 기반 쿼터뷰 열차 전투 밸런스 및 승무원 성장 시뮬레이터 (Studio Web Edition)</p>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-with col_h2:
-    if st.button("🔄 엑셀 데이터 새로고침", use_container_width=True):
-        loader.reload_all_data()
-        st.success("엑셀 데이터를 성공적으로 다시 불러왔습니다!")
-        st.rerun()
-
-# 4 Main Tabs matching Desktop GUI
-tab1, tab2, tab3, tab4 = st.tabs([
-    "🚂 1. 통합 열차 & 적 세팅 워크숍",
-    "📋 2. 전투 로그 시트 (Combat Log)",
-    "🔍 3. Raw 데이터 검증 (Inspector)",
-    "🎲 4. 승무원 레벨업 랜덤 성장 시뮬레이터"
-])
 
 # ==============================================================================
-# TAB 1: 🚂 워크숍 (Workshop)
+# HEADER
 # ==============================================================================
-with tab1:
+header_left, header_right = st.columns([5, 1.45])
+with header_left:
+    st.markdown(
+        '<div class="app-title">🚂 SIECLETRAIN VISUAL BATTLE SIMULATOR</div>',
+        unsafe_allow_html=True,
+    )
+with header_right:
+    if st.button(
+        "🔄 엑셀 새로고침 (Excel Reload)",
+        key="reload_excel",
+        use_container_width=True,
+    ):
+        try:
+            loader.reload_all_data()
+            total_items = sum(len(records) for records in loader.data.values())
+            st.session_state.last_battle_result = None
+            set_flash(
+                "success",
+                f"엑셀 파일에서 총 {total_items:,}건의 데이터를 새로고침했습니다.",
+            )
+            st.rerun()
+        except Exception as exc:
+            st.error(f"엑셀 파일 읽기 중 오류가 발생했습니다: {exc}")
+
+show_flash()
+
+tab_workshop, tab_log, tab_inspector, tab_crew = st.tabs(
+    [
+        "1. 🚂 통합 열차 & 적 세팅 워크숍",
+        "2. 📋 전투 로그 시트 (Combat Log)",
+        "3. 🔍 Raw 데이터 검증 (Inspector)",
+        "4. 🎲 승무원 레벨업 랜덤 성장 시뮬레이터",
+    ]
+)
+
+
+# ==============================================================================
+# TAB 1: WORKSHOP
+# ==============================================================================
+with tab_workshop:
     stats = train_config.calculate_stats()
-    loco_hp = float(train_config.locomotive.get("locomotiveHp") or 0.0) if train_config.locomotive else 0.0
-    gen_shield = float(train_config.generator.get("generatorShieldUp") or 0.0) if train_config.generator else 0.0
-    crew_prod = sum(c.get_effective_crew_stats()["product"] for c in train_config.coaches)
-    crew_ind = sum(c.get_effective_crew_stats()["industry"] for c in train_config.coaches)
 
-    # 1. Clickable Visual Train Blueprint (상단 실시간 조감도 & 클릭 선택)
+    # 상단 Visual Blueprint
     with st.container(border=True):
-        st.markdown("<div style='font-size:13px; font-weight:700; color:#94a3b8; margin-bottom:6px;'>🚂 실시간 열차 조감도 (칸을 클릭하면 해당 객차의 세부 설정으로 즉시 전환됩니다)</div>", unsafe_allow_html=True)
+        summary_left, summary_right = st.columns([4, 1])
+        with summary_left:
+            st.markdown(
+                '<div class="section-caption">🔍 열차 칸 카드를 클릭하여 상세 스탯과 장착 대상을 전환합니다.</div>',
+                unsafe_allow_html=True,
+            )
+        with summary_right:
+            st.markdown(
+                f'<div class="section-caption cyan-text" style="text-align:right">'
+                f"보호막: {stats['total_shield']:.0f} | 포탑: {stats['turret_count']}개"
+                "</div>",
+                unsafe_allow_html=True,
+            )
 
-        total_nodes = 1 + len(train_config.coaches)
-        bp_cols = st.columns(total_nodes)
-
-        # Locomotive Block Button
-        with bp_cols[0]:
-            is_loco_sel = (st.session_state.selected_coach_idx == 0)
-            loco_nm = train_config.locomotive.get("locomotiveName", "기관차") if train_config.locomotive else "기관차"
-            lt_cnt = len(train_config.locomotive_turrets)
-            btn_loco_type = "primary" if is_loco_sel else "secondary"
-            if st.button(f"🚂 {loco_nm}\n(HP:{loco_hp:.0f} | 🛡️:{stats['locomotive_def']:.0f})\n포탑:{lt_cnt}/2", key="bp_btn_loco", type=btn_loco_type, use_container_width=True):
+        blueprint_columns = st.columns(
+            max(1, len(train_config.coaches) + 1), gap="small"
+        )
+        with blueprint_columns[0]:
+            locomotive = train_config.locomotive
+            loco_name = (
+                locomotive.get("locomotiveName") if locomotive else "기관차 미선택"
+            )
+            loco_hp = float(locomotive.get("locomotiveHp") or 0) if locomotive else 0
+            loco_def = (
+                float(locomotive.get("locomotiveDef") or 0) if locomotive else 0
+            )
+            loco_shield = train_config.get_locomotive_shield()
+            loco_turret_names = [
+                (weapon.get("weaponName") or weapon.get("weaponId"))[:3]
+                for weapon in train_config.locomotive_turrets
+            ]
+            while len(loco_turret_names) < 2:
+                loco_turret_names.append("-")
+            if st.button(
+                "🚂 [기관차]\n"
+                f"{loco_name}\n"
+                f"Def:{loco_def:.0f} | 🛡️:{loco_shield:.0f} | HP:{loco_hp:.0f}\n"
+                f"T1:{loco_turret_names[0]}  T2:{loco_turret_names[1]}",
+                key="blueprint_locomotive",
+                type=(
+                    "primary"
+                    if st.session_state.selected_coach_idx == 0
+                    else "secondary"
+                ),
+                use_container_width=True,
+            ):
                 st.session_state.selected_coach_idx = 0
                 st.rerun()
 
-        # Coach Block Buttons
-        for idx, c_slot in enumerate(train_config.coaches):
-            with bp_cols[idx + 1]:
-                is_c_sel = (st.session_state.selected_coach_idx == (idx + 1))
-                c_nm = c_slot.get_name()
-                cr_nm = c_slot.crew.get("crewName") if c_slot.crew else "미배치"
-                cr_lvl = f"Lv.{c_slot.crew_level}" if c_slot.crew else ""
-                t_cnt = len(c_slot.turrets)
-                c_hp = c_slot.get_couch_stats()["hp"]
-                c_def = c_slot.get_total_coach_def()
-                btn_c_type = "primary" if is_c_sel else "secondary"
-
-                if st.button(f"🚃 #{c_slot.index} {c_nm}\n(HP:{c_hp:.0f}|Def:{c_def:.0f})\n{cr_nm} {cr_lvl} [T:{t_cnt}/4]", key=f"bp_btn_c_{idx}", type=btn_c_type, use_container_width=True):
-                    st.session_state.selected_coach_idx = idx + 1
+        for coach_index, slot in enumerate(train_config.coaches, start=1):
+            with blueprint_columns[coach_index]:
+                coach_stats = slot.get_couch_stats()
+                coach_shield = slot.get_total_coach_shield(
+                    generator=train_config.generator
+                )
+                crew_name = (
+                    slot.crew.get("crewName") if slot.crew else "승무원 미배치"
+                )
+                if st.button(
+                    f"🚃 [객차 #{slot.index}] 시너지:{slot.get_synergy_power():.1f}x\n"
+                    f"{slot.get_name()}\n"
+                    f"Def:{slot.get_total_coach_def():.1f} | 🛡️:{coach_shield:.0f} | HP:{coach_stats.get('hp', 0):.0f}\n"
+                    f"🔫 {len(slot.turrets)}/4 | 👨‍✈️ {crew_name} Lv.{slot.crew_level}",
+                    key=f"blueprint_coach_{coach_index}",
+                    type=(
+                        "primary"
+                        if st.session_state.selected_coach_idx == coach_index
+                        else "secondary"
+                    ),
+                    use_container_width=True,
+                ):
+                    st.session_state.selected_coach_idx = coach_index
                     st.rerun()
 
-    # Top KPI Metrics Cards
-    k_col1, k_col2, k_col3, k_col4, k_col5 = st.columns(5)
-    with k_col1:
-        st.metric("🚂 기관차 HP / Def", f"{loco_hp:.0f} / {stats['locomotive_def']:.0f}", loco_nm)
-    with k_col2:
-        st.metric("🚃 연결 객차 수", f"{stats['current_couches']} / {stats['max_couches']} 칸", f"엔진 출력: {stats['horsepower']:.0f} HP")
-    with k_col3:
-        st.metric("🛡️ 총 보호막 (Shield)", f"{stats['total_shield']:.0f}", f"제네레이터: +{gen_shield:.0f}")
-    with k_col4:
-        st.metric("⚔️ L-대지 / F-대공 위력", f"+{stats['crew_landpower']:.1f} / +{stats['crew_flypower']:.1f}", "승무원 전투 보너스")
-    with k_col5:
-        st.metric("🏭 생산력 / 공업력", f"{crew_prod:.1f} / {crew_ind:.1f}", "열차 총 생산 합계")
+    left_column, middle_column, right_column = st.columns([3, 4, 4], gap="small")
 
-    st.markdown("<hr style='margin: 12px 0; border-color: #334155;'>", unsafe_allow_html=True)
-
-    # 3-Column Studio Layout
-    c1, c2, c3 = st.columns([1.15, 1.25, 1.15])
-
-    # ----------------------------------------------------
-    # COLUMN 1: 기관차 및 파츠 세팅
-    # ----------------------------------------------------
-    with c1:
+    # --------------------------------------------------------------------------
+    # LEFT: Selected dashboard + locomotive parts
+    # --------------------------------------------------------------------------
+    with left_column:
         with st.container(border=True):
-            st.markdown('<div class="section-head">⚙️ 1. 기관차 및 파츠 구성</div>', unsafe_allow_html=True)
-
-            loco_opts = list(locomotives_map.keys())
-            loco_labels = [f"{locomotives_map[k].get('locomotiveName')} ({k})" for k in loco_opts]
-            cur_loco_id = train_config.locomotive.get("locomotiveId") if train_config.locomotive else loco_opts[0]
-            cur_loco_idx = loco_opts.index(cur_loco_id) if cur_loco_id in loco_opts else 0
-
-            sel_loco_idx = st.selectbox("🚂 기관차 파츠 선택", range(len(loco_opts)), format_func=lambda i: loco_labels[i], index=cur_loco_idx)
-            train_config.locomotive = locomotives_map[loco_opts[sel_loco_idx]]
-
-            # Locomotive Inspector Card
-            if train_config.locomotive:
-                l_data = train_config.locomotive
-                st.markdown(f'''
-                <div class="info-card">
-                    <div class="info-card-title">📋 기관차 스탯 인스펙터: {l_data.get("locomotiveName")}</div>
-                    <div class="info-grid">
-                        <div class="info-item"><span class="info-label">HP:</span> <span class="info-val">{l_data.get("locomotiveHp")}</span></div>
-                        <div class="info-item"><span class="info-label">Def:</span> <span class="info-val">{l_data.get("locomotiveDef")}</span></div>
-                        <div class="info-item"><span class="info-label">보호막:</span> <span class="info-val">{l_data.get("locomotiveShield")}</span></div>
-                        <div class="info-item"><span class="info-label">객차한도:</span> <span class="info-val">{l_data.get("locomotiveCouch")}칸</span></div>
-                        <div class="info-item"><span class="info-label">시너지:</span> <span class="info-val">{l_data.get("synergy") or "없음"}</span></div>
-                    </div>
-                </div>
-                ''', unsafe_allow_html=True)
-
-            # Engine
-            eng_opts = ["(미장착)"] + list(engines_map.keys())
-            cur_eng_id = train_config.engine.get("engineId") if train_config.engine else "(미장착)"
-            cur_eng_idx = eng_opts.index(cur_eng_id) if cur_eng_id in eng_opts else 0
-            sel_eng_idx = st.selectbox("🔥 엔진 (Horsepower)", range(len(eng_opts)), format_func=lambda i: f"{engines_map[eng_opts[i]].get('engineName')} (+{engines_map[eng_opts[i]].get('enginePowerUp')}HP)" if eng_opts[i] != "(미장착)" else "(미장착)", index=cur_eng_idx)
-            train_config.engine = engines_map.get(eng_opts[sel_eng_idx])
-
-            # Generator
-            gen_opts = ["(미장착)"] + list(generators_map.keys())
-            cur_gen_id = train_config.generator.get("generatorId") if train_config.generator else "(미장착)"
-            cur_gen_idx = gen_opts.index(cur_gen_id) if cur_gen_id in gen_opts else 0
-            sel_gen_idx = st.selectbox("⚡ 제네레이터 (Shield)", range(len(gen_opts)), format_func=lambda i: f"{generators_map[gen_opts[i]].get('generatorName')} (+{generators_map[gen_opts[i]].get('generatorShieldUp')}보호막)" if gen_opts[i] != "(미장착)" else "(미장착)", index=cur_gen_idx)
-            train_config.generator = generators_map.get(gen_opts[sel_gen_idx])
-
-            # Brake
-            brk_opts = ["(미장착)"] + list(brakes_map.keys())
-            cur_brk_id = train_config.brake.get("breakId") if train_config.brake else "(미장착)"
-            cur_brk_idx = brk_opts.index(cur_brk_id) if cur_brk_id in brk_opts else 0
-            sel_brk_idx = st.selectbox("🛑 제동장치 (Brake)", range(len(brk_opts)), format_func=lambda i: f"{brakes_map[brk_opts[i]].get('breakName')} (+{brakes_map[brk_opts[i]].get('breakPowerUp')})" if brk_opts[i] != "(미장착)" else "(미장착)", index=cur_brk_idx)
-            train_config.brake = brakes_map.get(brk_opts[sel_brk_idx])
-
-            # Locomotive Turrets (Max 2)
-            st.markdown("###### 🔫 기관차 자체 포탑 (최대 2개)")
-            col_lt1, col_lt2 = st.columns([2.2, 1])
-            w_opts = list(weapons_map.keys())
-            with col_lt1:
-                sel_w_id = st.selectbox("장착할 포탑 선택", w_opts, format_func=lambda k: f"{weapons_map[k].get('weaponName')} (위력:{weapons_map[k].get('weaponPower')})", key="sb_lt")
-            with col_lt2:
-                if st.button("포탑 장착 (+)", key="btn_add_lt", use_container_width=True):
-                    if len(train_config.locomotive_turrets) < 2:
-                        train_config.locomotive_turrets.append(weapons_map[sel_w_id])
-                        st.rerun()
+            st.markdown(
+                '<div class="group-title">📊 능력치 대시보드</div>',
+                unsafe_allow_html=True,
+            )
+            selected_index = st.session_state.selected_coach_idx
+            if selected_index == 0:
+                if train_config.locomotive:
+                    locomotive = train_config.locomotive
+                    st.markdown(
+                        f'<div class="selected-title">🚂 [기관차 대시보드] '
+                        f"{esc(locomotive.get('locomotiveName') or locomotive.get('locomotiveId'))}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    stat_cards(
+                        [
+                            (
+                                "기관차 체력 (HP)",
+                                fmt_num(locomotive.get("locomotiveHp")),
+                                "#10b981",
+                            ),
+                            (
+                                "제네레이터 보호막",
+                                fmt_num(train_config.get_locomotive_shield()),
+                                "#06b6d4",
+                            ),
+                            (
+                                "기관차 방어력",
+                                fmt_num(stats["locomotive_def"]),
+                                "#3b82f6",
+                            ),
+                            (
+                                "현재 중량 / 허용 중량",
+                                f"{stats['current_weight']:.0f} / {stats['weight_limit']:.0f} kg",
+                                "#ef4444",
+                            ),
+                            (
+                                "총 엔진 출력",
+                                f"{stats['horsepower']:.0f} HP",
+                                "#8b5cf6",
+                            ),
+                            (
+                                "객차 연결 (현재/최대)",
+                                f"{stats['current_couches']} / {stats['max_couches']} 칸",
+                                "#f59e0b",
+                            ),
+                        ]
+                    )
+                    engine_name = (
+                        train_config.engine.get("engineName")
+                        if train_config.engine
+                        else "엔진 미장착"
+                    )
+                    generator_name = (
+                        train_config.generator.get("generatorName")
+                        if train_config.generator
+                        else "제네레이터 미장착"
+                    )
+                    brake_name = (
+                        train_config.brake.get("breakName")
+                        if train_config.brake
+                        else "제동장치 미장착"
+                    )
+                    details = [
+                        f"⚡ 엔진: {engine_name} (가속력: {stats['accel_power']:.2f})",
+                        f"🛡️ 제네레이터: {generator_name} (전체 공유 보호막)",
+                        f"🛑 제동장치: {brake_name} (제동력: {stats['brake_power']:.2f})",
+                        f"🔫 기관차 자체 포탑 ({len(train_config.locomotive_turrets)}/2개):",
+                    ]
+                    if train_config.locomotive_turrets:
+                        for index, weapon in enumerate(
+                            train_config.locomotive_turrets, start=1
+                        ):
+                            details.append(
+                                f"   • T{index}:{weapon.get('weaponName') or weapon.get('weaponId')} "
+                                f"[{str(weapon.get('weaponLandType') or 'L').upper()}] | "
+                                f"위력:{float(weapon.get('weaponPower') or 0):.1f}"
+                            )
                     else:
-                        st.warning("기관차 포탑은 최대 2개까지만 장착 가능합니다!")
-
-            for idx, w in enumerate(train_config.locomotive_turrets):
-                col_w_info, col_w_del = st.columns([3, 1])
-                with col_w_info:
-                    st.caption(f"#{idx+1}: **{w.get('weaponName')}** [위력: {w.get('weaponPower')} | 사거리: {w.get('weaponRange')}]")
-                with col_w_del:
-                    if st.button("해제 (-)", key=f"del_lt_{idx}", use_container_width=True):
-                        train_config.locomotive_turrets.pop(idx)
-                        st.rerun()
-
-    # ----------------------------------------------------
-    # COLUMN 2: 객차 및 승무원 레벨/스탯 배분
-    # ----------------------------------------------------
-    with c2:
-        with st.container(border=True):
-            st.markdown('<div class="section-head">🚃 2. 객차 구성 & 승무원 레벨/스탯 관리</div>', unsafe_allow_html=True)
-
-            # Coach Add Row
-            col_c_add1, col_c_add2 = st.columns([2.2, 1])
-            couch_opts = list(couches_map.keys())
-            with col_c_add1:
-                sel_couch_id = st.selectbox("연결할 객차 파츠", couch_opts, format_func=lambda k: f"{couches_map[k].get('couchName')} ({k})")
-            with col_c_add2:
-                if st.button("객차 추가 (+)", use_container_width=True):
-                    max_c = int(train_config.locomotive.get("locomotiveCouch", 5)) if train_config.locomotive else 5
-                    if len(train_config.coaches) < max_c:
-                        train_config.add_coach(couches_map[sel_couch_id])
-                        st.session_state.selected_coach_idx = len(train_config.coaches)
-                        st.rerun()
-                    else:
-                        st.warning(f"선택한 기관차의 최대 객차 연결 한도는 {max_c}칸입니다!")
-
-            # Coach List Selector
-            coach_display_list = [f"🚂 [기관차] {train_config.locomotive.get('locomotiveName', '')}"]
-            for slot in train_config.coaches:
-                c_crew = slot.crew.get("crewName") if slot.crew else "미배치"
-                coach_display_list.append(f"🚃 [#{slot.index}번 칸] {slot.get_name()} | 승무원: {c_crew} (Lv.{slot.crew_level})")
-
-            sel_coach_row = st.selectbox("🎯 조작할 객차 칸 선택", range(len(coach_display_list)), format_func=lambda i: coach_display_list[i], index=min(st.session_state.selected_coach_idx, len(coach_display_list)-1))
-            st.session_state.selected_coach_idx = sel_coach_row
-
-            if sel_coach_row > 0:
-                slot = train_config.coaches[sel_coach_row - 1]
-                couch_syn = slot.couch_data.get("synergy", "없음") if slot.couch_data else "없음"
-
-                col_del_c, col_c_info = st.columns([1.2, 2.8])
-                with col_del_c:
-                    if st.button("현재 객차 삭제 (-)", key="btn_del_cur_coach", use_container_width=True):
-                        train_config.remove_coach(sel_coach_row - 1)
-                        st.session_state.selected_coach_idx = max(0, sel_coach_row - 1)
-                        st.rerun()
-                with col_c_info:
-                    st.caption(f"HP: {slot.get_couch_stats()['hp']} | Def: {slot.get_total_coach_def():.0f} | 시너지: {couch_syn}")
-
-                # Crew Assignment Box
-                st.markdown("###### 👨‍✈️ 승무원 배치 (동일 승무원 중복 장착 불가)")
-                col_cr_sel, col_cr_act, col_cr_un = st.columns([2, 1, 1])
-                cr_opts = ["(미배치)"] + list(crews_map.keys())
-                cur_slot_cid = slot.crew.get("crewId") if slot.crew else "(미배치)"
-                cur_cr_idx = cr_opts.index(cur_slot_cid) if cur_slot_cid in cr_opts else 0
-
-                with col_cr_sel:
-                    sel_cr_idx = st.selectbox("배치할 승무원", range(len(cr_opts)), format_func=lambda i: f"{crews_map[cr_opts[i]].get('crewName')} [{crews_map[cr_opts[i]].get('crewType')}]" if cr_opts[i] != "(미배치)" else "(미배치)", index=cur_cr_idx, label_visibility="collapsed")
-                with col_cr_act:
-                    if st.button("배치 (+)", key="btn_assign_crew", use_container_width=True):
-                        if cr_opts[sel_cr_idx] != "(미배치)":
-                            target_cid = cr_opts[sel_cr_idx]
-                            dup_slot = None
-                            for o_idx, o_slot in enumerate(train_config.coaches):
-                                if o_idx != (sel_coach_row - 1) and o_slot.crew and o_slot.crew.get("crewId") == target_cid:
-                                    dup_slot = o_slot
-                                    break
-                            if dup_slot:
-                                st.error(f"[{crews_map[target_cid].get('crewName')}] 승무원은 이미 #{dup_slot.index}번 칸 객차에 배치되어 있습니다! 중복 배치가 불가능합니다.")
-                            else:
-                                slot.crew = crews_map[target_cid]
-                                st.rerun()
-                with col_cr_un:
-                    if st.button("해제 (-)", key="btn_unassign_crew", use_container_width=True):
-                        slot.crew = None
-                        st.rerun()
-
-                # Crew Level & Point Allocation with tactile buttons
-                if slot.crew:
-                    cr_name = slot.crew.get("crewName")
-                    with st.container(border=True):
-                        st.markdown(f'<div style="font-weight:700; color:#a855f7; font-size:13px; margin-bottom:8px;">👨‍✈️ [#{slot.index}번 {cr_name}] 레벨 & 스탯 포인트 배분</div>', unsafe_allow_html=True)
-
-                        # Level Row with [-10], [-1], [Lv], [+1], [+10]
-                        col_l1, col_l2, col_l3, col_l4, col_l5 = st.columns([1, 1, 2, 1, 1])
-                        with col_l1:
-                            if st.button("-10", key="btn_lvl_m10", use_container_width=True):
-                                slot.set_crew_level(max(1, slot.crew_level - 10))
-                                st.rerun()
-                        with col_l2:
-                            if st.button("-1", key="btn_lvl_m1", use_container_width=True):
-                                slot.set_crew_level(max(1, slot.crew_level - 1))
-                                st.rerun()
-                        with col_l3:
-                            st.markdown(f"<div style='text-align:center; font-weight:800; font-size:16px; color:#38bdf8; padding-top:4px;'>Lv. {slot.crew_level}</div>", unsafe_allow_html=True)
-                        with col_l4:
-                            if st.button("+1", key="btn_lvl_p1", use_container_width=True):
-                                slot.set_crew_level(min(50, slot.crew_level + 1))
-                                st.rerun()
-                        with col_l5:
-                            if st.button("+10", key="btn_lvl_p10", use_container_width=True):
-                                slot.set_crew_level(min(50, slot.crew_level + 10))
-                                st.rerun()
-
-                        rem_pts = slot.get_remaining_points()
-                        max_pts = slot.get_max_available_points()
-                        st.markdown(f"<div style='font-size:12px; color:#cbd5e1; margin: 6px 0;'>남은 포인트: <b style='color:#38bdf8;'>{rem_pts}</b> / {max_pts} pt (포인트당 +1.0% 증가)</div>", unsafe_allow_html=True)
-
-                        # 1. Attack Row
-                        col_a_lbl, col_a_m1, col_a_val, col_a_p1 = st.columns([2.5, 1, 1.5, 1])
-                        with col_a_lbl:
-                            st.markdown("⚔️ **공격력** *(대지/대공)*")
-                        with col_a_m1:
-                            if st.button("[-]", key="btn_atk_m1", use_container_width=True):
-                                slot.set_crew_points(max(0, slot.crew_atk_pts - 1), slot.crew_def_pts, slot.crew_prod_pts)
-                                st.rerun()
-                        with col_a_val:
-                            st.markdown(f"<div style='text-align:center; font-weight:700; color:#fbbf24;'>{slot.crew_atk_pts} pt</div>", unsafe_allow_html=True)
-                        with col_a_p1:
-                            if st.button("[+]", key="btn_atk_p1", use_container_width=True):
-                                if rem_pts > 0:
-                                    slot.set_crew_points(slot.crew_atk_pts + 1, slot.crew_def_pts, slot.crew_prod_pts)
-                                    st.rerun()
-                                else:
-                                    st.warning("남은 포인트가 없습니다!")
-
-                        # 2. Defense Row
-                        col_d_lbl, col_d_m1, col_d_val, col_d_p1 = st.columns([2.5, 1, 1.5, 1])
-                        with col_d_lbl:
-                            st.markdown("🛡️ **방어력** *(승무원 방어)*")
-                        with col_d_m1:
-                            if st.button("[-]", key="btn_def_m1", use_container_width=True):
-                                slot.set_crew_points(slot.crew_atk_pts, max(0, slot.crew_def_pts - 1), slot.crew_prod_pts)
-                                st.rerun()
-                        with col_d_val:
-                            st.markdown(f"<div style='text-align:center; font-weight:700; color:#38bdf8;'>{slot.crew_def_pts} pt</div>", unsafe_allow_html=True)
-                        with col_d_p1:
-                            if st.button("[+]", key="btn_def_p1", use_container_width=True):
-                                if rem_pts > 0:
-                                    slot.set_crew_points(slot.crew_atk_pts, slot.crew_def_pts + 1, slot.crew_prod_pts)
-                                    st.rerun()
-                                else:
-                                    st.warning("남은 포인트가 없습니다!")
-
-                        # 3. Production Row
-                        col_p_lbl, col_p_m1, col_p_val, col_p_p1 = st.columns([2.5, 1, 1.5, 1])
-                        with col_p_lbl:
-                            st.markdown("🏭 **생산/공업** *(생산력)*")
-                        with col_p_m1:
-                            if st.button("[-]", key="btn_prod_m1", use_container_width=True):
-                                slot.set_crew_points(slot.crew_atk_pts, slot.crew_def_pts, max(0, slot.crew_prod_pts - 1))
-                                st.rerun()
-                        with col_p_val:
-                            st.markdown(f"<div style='text-align:center; font-weight:700; color:#34d399;'>{slot.crew_prod_pts} pt</div>", unsafe_allow_html=True)
-                        with col_p_p1:
-                            if st.button("[+]", key="btn_prod_p1", use_container_width=True):
-                                if rem_pts > 0:
-                                    slot.set_crew_points(slot.crew_atk_pts, slot.crew_def_pts, slot.crew_prod_pts + 1)
-                                    st.rerun()
-                                else:
-                                    st.warning("남은 포인트가 없습니다!")
-
-                        # Quick Preset Buttons
-                        qp_c1, qp_c2, qp_c3, qp_c4 = st.columns(4)
-                        with qp_c1:
-                            if st.button("초기화", key="q_reset", use_container_width=True):
-                                slot.set_crew_points(0, 0, 0)
-                                st.rerun()
-                        with qp_c2:
-                            if st.button("공격 올인", key="q_atk", use_container_width=True):
-                                slot.set_crew_points(max_pts, 0, 0)
-                                st.rerun()
-                        with qp_c3:
-                            if st.button("방어 올인", key="q_def", use_container_width=True):
-                                slot.set_crew_points(0, max_pts, 0)
-                                st.rerun()
-                        with qp_c4:
-                            if st.button("균등 분배", key="q_even", use_container_width=True):
-                                each = max_pts // 3
-                                rem = max_pts % 3
-                                slot.set_crew_points(each + (1 if rem > 0 else 0), each + (1 if rem > 1 else 0), each)
-                                st.rerun()
+                        details.append("   • (장착된 기관차 포탑 없음)")
+                    st.markdown(
+                        f'<div class="mono-box">{esc(chr(10).join(details))}</div>',
+                        unsafe_allow_html=True,
+                    )
                 else:
-                    st.info("💡 승무원을 배치하면 레벨 설정 및 스탯 포인트 배분이 활성화됩니다.")
+                    st.markdown(
+                        '<div class="selected-title">🚂 기관차 미선택</div>',
+                        unsafe_allow_html=True,
+                    )
+                    stat_cards(
+                        [
+                            ("기관차 체력 (HP)", "0", "#10b981"),
+                            ("제네레이터 보호막", "0", "#06b6d4"),
+                            ("기관차 방어력", "0", "#3b82f6"),
+                            ("현재 중량 / 허용 중량", "0 / 0 kg", "#ef4444"),
+                            ("총 엔진 출력", "0 HP", "#8b5cf6"),
+                            ("객차 연결 (현재/최대)", "0 / 0 칸", "#f59e0b"),
+                        ]
+                    )
+                    st.info("기관차를 아래 파츠 선택에서 장착하세요.")
+            else:
+                slot = train_config.coaches[selected_index - 1]
+                coach_stats = slot.get_couch_stats()
+                effective = slot.get_effective_crew_stats()
+                st.markdown(
+                    f'<div class="selected-title">🚃 [{slot.index}번 객차 대시보드] '
+                    f"{esc(slot.get_name())}</div>",
+                    unsafe_allow_html=True,
+                )
+                stat_cards(
+                    [
+                        ("객차 체력 (HP)", fmt_num(coach_stats["hp"]), "#10b981"),
+                        (
+                            "객차 보호막",
+                            fmt_num(
+                                slot.get_total_coach_shield(
+                                    generator=train_config.generator
+                                )
+                            ),
+                            "#06b6d4",
+                        ),
+                        (
+                            "객차 방어력",
+                            f"{slot.get_total_coach_def():.1f} "
+                            f"(기본:{coach_stats['def']:.0f}+승무원:{effective['def']:.1f})",
+                            "#3b82f6",
+                        ),
+                        ("객차 무게", f"{coach_stats['weight']:.0f} kg", "#ef4444"),
+                        (
+                            "시너지 계수",
+                            f"{slot.get_synergy_power():.2f}x",
+                            "#8b5cf6",
+                        ),
+                        ("객차 가격", f"{coach_stats['cost']:,.0f} G", "#f59e0b"),
+                    ]
+                )
+                details = []
+                if slot.crew:
+                    crew_name = slot.crew.get("crewName") or slot.crew.get("crewId")
+                    details.extend(
+                        [
+                            f"👨‍✈️ 승무원: {crew_name} [{slot.crew.get('crewType') or ''}] "
+                            f"(Lv.{slot.crew_level} | ⚔️+{slot.crew_atk_pts}pt, "
+                            f"🛡️+{slot.crew_def_pts}pt, 🏭+{slot.crew_prod_pts}pt)",
+                            f"   • 대지:{effective['landpower']:.1f} | 대공:{effective['flypower']:.1f}",
+                            f"   • Def:+{effective['def']:.1f} | 생산:{effective['product']:.1f} | 공업:{effective['industry']:.1f}",
+                        ]
+                    )
+                else:
+                    details.append("👨‍✈️ 승무원: 미배치")
+                details.append(f"🔫 포탑 ({len(slot.turrets)}/4개):")
+                if slot.turrets:
+                    for index, weapon in enumerate(slot.turrets, start=1):
+                        land_type = str(
+                            weapon.get("weaponLandType") or "L"
+                        ).strip().upper()
+                        crew_bonus = (
+                            effective["landpower"]
+                            if land_type == "L"
+                            else effective["flypower"]
+                            if land_type == "F"
+                            else max(
+                                effective["landpower"], effective["flypower"]
+                            )
+                        )
+                        base_power = float(weapon.get("weaponPower") or 0)
+                        details.append(
+                            f"   • T{index}:{weapon.get('weaponName') or weapon.get('weaponId')} "
+                            f"[{land_type}] | 위력:{base_power + crew_bonus:.1f}"
+                            f"(기본:{base_power:.1f}+승무원:{crew_bonus:.1f})"
+                        )
+                else:
+                    details.append("   • (장착된 포탑 없음)")
+                st.markdown(
+                    f'<div class="mono-box">{esc(chr(10).join(details))}</div>',
+                    unsafe_allow_html=True,
+                )
 
-                # Coach Turrets Box (Max 4)
-                st.markdown("###### 🔫 객차 포탑 장착 (최대 4개)")
-                col_ct1, col_ct2 = st.columns([2.2, 1])
-                with col_ct1:
-                    sel_ct_id = st.selectbox("장착할 객차 포탑", w_opts, format_func=lambda k: f"{weapons_map[k].get('weaponName')} (위력:{weapons_map[k].get('weaponPower')})", key="sb_ct")
-                with col_ct2:
-                    if st.button("포탑 장착 (+)", key="btn_add_ct", use_container_width=True):
-                        if len(slot.turrets) < 4:
-                            slot.turrets.append(weapons_map[sel_ct_id])
+        with st.container(border=True):
+            st.markdown(
+                '<div class="group-title">🚂 기관차 핵심 파츠 선택</div>',
+                unsafe_allow_html=True,
+            )
+            part_specs = [
+                (
+                    "기관차 (Loco)",
+                    "part_locomotive",
+                    "locomotive",
+                    locomotives_map,
+                    "locomotiveId",
+                    "locomotiveName",
+                ),
+                (
+                    "⚡ 엔진 (Engine)",
+                    "part_engine",
+                    "engine",
+                    engines_map,
+                    "engineId",
+                    "engineName",
+                ),
+                (
+                    "🛡️ 제네레이터 (Gen)",
+                    "part_generator",
+                    "generator",
+                    generators_map,
+                    "generatorId",
+                    "generatorName",
+                ),
+                (
+                    "🛑 제동장치 (Brake)",
+                    "part_brake",
+                    "brake",
+                    brakes_map,
+                    "breakId",
+                    "breakName",
+                ),
+            ]
+            for label, key, attr, data_map, id_field, name_field in part_specs:
+                current_data = getattr(train_config, attr)
+                current_id = current_data.get(id_field) if current_data else None
+                options = [None] + list(data_map.keys())
+                if key not in st.session_state or st.session_state[key] not in options:
+                    st.session_state[key] = (
+                        current_id if current_id in data_map else None
+                    )
+                st.selectbox(
+                    label,
+                    options,
+                    key=key,
+                    format_func=lambda item, m=data_map, nf=name_field: (
+                        "-- 미장착 --"
+                        if item is None
+                        else f"{m[item].get(nf) or item} ({item})"
+                    ),
+                    on_change=sync_part,
+                    args=(attr, key, data_map),
+                )
+
+    # --------------------------------------------------------------------------
+    # MIDDLE: Coach list, turret and crew setup
+    # --------------------------------------------------------------------------
+    with middle_column:
+        with st.container(border=True):
+            st.markdown(
+                '<div class="group-title">🚃 객차배치도 & 포탑/승무원 세팅</div>',
+                unsafe_allow_html=True,
+            )
+
+            add_coach_left, add_coach_right = st.columns([3, 1])
+            couch_ids = list(couches_map.keys())
+            with add_coach_left:
+                selected_couch_id = st.selectbox(
+                    "추가할 객차",
+                    couch_ids,
+                    key="couch_to_add",
+                    format_func=lambda item: (
+                        f"{couches_map[item].get('couchName') or item} "
+                        f"(시너지:{float(couches_map[item].get('couchSynergyPower') or 1):.1f}x)"
+                    ),
+                    label_visibility="collapsed",
+                )
+            with add_coach_right:
+                if st.button(
+                    "객차 추가 (+)", key="add_coach", use_container_width=True
+                ):
+                    if not train_config.locomotive:
+                        st.warning("기관차를 먼저 선택하세요.")
+                    else:
+                        max_coaches = int(
+                            train_config.locomotive.get("locomotiveCouch") or 0
+                        )
+                        if len(train_config.coaches) >= max_coaches:
+                            st.warning(
+                                f"선택한 기관차에는 최대 {max_coaches}칸만 연결할 수 있습니다."
+                            )
+                        elif selected_couch_id:
+                            train_config.add_coach(couches_map[selected_couch_id])
+                            st.session_state.selected_coach_idx = len(
+                                train_config.coaches
+                            )
                             st.rerun()
-                        else:
-                            st.warning("객차 포탑은 최대 4개까지만 장착 가능합니다!")
 
-                for idx, w in enumerate(slot.turrets):
-                    col_w_info, col_w_del = st.columns([3, 1])
-                    with col_w_info:
-                        st.caption(f"#{idx+1}: **{w.get('weaponName')}** [위력: {w.get('weaponPower')} | 사거리: {w.get('weaponRange')}]")
-                    with col_w_del:
-                        if st.button("해제 (-)", key=f"del_ct_{slot.index}_{idx}", use_container_width=True):
-                            slot.turrets.pop(idx)
+            st.markdown(
+                '<div class="section-caption">📋 열차 칸 목록 (클릭하여 장착/배치)</div>',
+                unsafe_allow_html=True,
+            )
+            coach_rows = [0] + list(range(1, len(train_config.coaches) + 1))
+
+            def coach_row_label(row):
+                if row == 0:
+                    locomotive_name = (
+                        train_config.locomotive.get("locomotiveName")
+                        if train_config.locomotive
+                        else "기관차 미선택"
+                    )
+                    return (
+                        f"🚂 [기관차] {locomotive_name} | "
+                        f"포탑 {len(train_config.locomotive_turrets)}/2 | 승무원 불가"
+                    )
+                selected_slot = train_config.coaches[row - 1]
+                crew_name = (
+                    selected_slot.crew.get("crewName")
+                    if selected_slot.crew
+                    else "승무원 미배치"
+                )
+                return (
+                    f"🚃 [{selected_slot.index}번 칸] {selected_slot.get_name()} | "
+                    f"Def:{selected_slot.get_total_coach_def():.1f} | "
+                    f"포탑 {len(selected_slot.turrets)}/4 | {crew_name}"
+                )
+
+            if (
+                "coach_row_selector" not in st.session_state
+                or st.session_state.coach_row_selector not in coach_rows
+            ):
+                st.session_state.coach_row_selector = (
+                    st.session_state.selected_coach_idx
+                )
+            elif (
+                st.session_state.coach_row_selector
+                != st.session_state.selected_coach_idx
+            ):
+                st.session_state.coach_row_selector = (
+                    st.session_state.selected_coach_idx
+                )
+
+            st.selectbox(
+                "열차 칸 목록",
+                coach_rows,
+                key="coach_row_selector",
+                format_func=coach_row_label,
+                on_change=sync_selected_row,
+                label_visibility="collapsed",
+            )
+            selected_index = st.session_state.selected_coach_idx
+
+            if selected_index > 0:
+                if st.button(
+                    "선택한 객차 삭제 (-)",
+                    key="remove_selected_coach",
+                    use_container_width=True,
+                ):
+                    train_config.remove_coach(selected_index - 1)
+                    st.session_state.selected_coach_idx = max(0, selected_index - 1)
+                    normalize_selected_index()
+                    st.rerun()
+
+            if selected_index == 0:
+                selected_name = (
+                    train_config.locomotive.get("locomotiveName")
+                    if train_config.locomotive
+                    else "기관차 미선택"
+                )
+                st.markdown(
+                    f'<div class="selected-title">선택: 🚂 [기관차] {esc(selected_name)} '
+                    f"(Def:{stats['locomotive_def']:.0f} | "
+                    f"🛡️보호막:{train_config.get_locomotive_shield():.0f} | "
+                    f"자체 포탑:{len(train_config.locomotive_turrets)}/2개)</div>",
+                    unsafe_allow_html=True,
+                )
+                selected_turrets = train_config.locomotive_turrets
+                turret_limit = 2
+                selected_slot = None
+            else:
+                selected_slot = train_config.coaches[selected_index - 1]
+                selected_turrets = selected_slot.turrets
+                turret_limit = 4
+                coach_stats = selected_slot.get_couch_stats()
+                st.markdown(
+                    f'<div class="selected-title">선택: 🚃 [{selected_slot.index}번 칸] '
+                    f"{esc(selected_slot.get_name())} "
+                    f"(Def:{selected_slot.get_total_coach_def():.1f} | "
+                    f"🛡️보호막:{selected_slot.get_total_coach_shield(generator=train_config.generator):.0f} | "
+                    f"시너지:{selected_slot.get_synergy_power():.1f}x | HP:{coach_stats['hp']:.0f})</div>",
+                    unsafe_allow_html=True,
+                )
+
+            turret_left, turret_right = st.columns([3, 1])
+            weapon_ids = list(weapons_map.keys())
+            with turret_left:
+                selected_weapon_id = st.selectbox(
+                    "포탑 장착",
+                    weapon_ids,
+                    key="turret_to_equip",
+                    format_func=lambda item: (
+                        f"[{weapons_map[item].get('weaponLandType') or 'L'}] "
+                        f"{weapons_map[item].get('weaponName') or item} "
+                        f"(위력:{weapons_map[item].get('weaponPower') or 0})"
+                    ),
+                    label_visibility="collapsed",
+                )
+            with turret_right:
+                if st.button(
+                    "장착 (+)", key="equip_turret", use_container_width=True
+                ):
+                    if selected_index == 0 and not train_config.locomotive:
+                        st.warning("기관차를 먼저 선택하세요.")
+                    elif len(selected_turrets) >= turret_limit:
+                        st.warning(
+                            f"현재 선택 칸에는 최대 {turret_limit}개의 포탑만 장착할 수 있습니다."
+                        )
+                    elif selected_weapon_id:
+                        selected_turrets.append(weapons_map[selected_weapon_id])
+                        st.rerun()
+
+            if selected_turrets:
+                for turret_index, weapon in enumerate(list(selected_turrets)):
+                    turret_info, turret_remove = st.columns([4, 1])
+                    land_type = str(
+                        weapon.get("weaponLandType") or "L"
+                    ).strip().upper()
+                    base_power = float(weapon.get("weaponPower") or 0)
+                    crew_bonus = 0.0
+                    if selected_slot:
+                        effective = selected_slot.get_effective_crew_stats()
+                        crew_bonus = (
+                            effective["landpower"]
+                            if land_type == "L"
+                            else effective["flypower"]
+                            if land_type == "F"
+                            else max(
+                                effective["landpower"], effective["flypower"]
+                            )
+                        )
+                    with turret_info:
+                        st.caption(
+                            f"🔫 #{turret_index + 1}: "
+                            f"**{weapon.get('weaponName') or weapon.get('weaponId')}** "
+                            f"[{land_type}] (총 위력: {base_power + crew_bonus:.1f})"
+                        )
+                    with turret_remove:
+                        if st.button(
+                            "해제 (-)",
+                            key=f"remove_turret_{selected_index}_{turret_index}",
+                            use_container_width=True,
+                        ):
+                            selected_turrets.pop(turret_index)
                             st.rerun()
             else:
-                st.info("🚂 현재 [기관차]가 선택되어 있습니다. 객차를 조작하려면 위의 조감도 또는 드롭다운에서 객차를 선택하세요.")
+                st.caption("장착된 포탑이 없습니다.")
 
-    # ----------------------------------------------------
-    # COLUMN 3: 적 군단 세팅 & 시뮬레이션
-    # ----------------------------------------------------
-    with c3:
+            if selected_slot is None:
+                st.info(
+                    "👨‍✈️ 기관차에는 승무원을 배치할 수 없습니다. 객차를 선택하세요."
+                )
+            else:
+                crew_select, crew_assign, crew_unassign = st.columns([3, 1, 1])
+                crew_ids = [None] + list(crews_map.keys())
+                current_crew_id = (
+                    selected_slot.crew.get("crewId") if selected_slot.crew else None
+                )
+                crew_widget_key = f"crew_select_{selected_slot.index}"
+                if (
+                    crew_widget_key not in st.session_state
+                    or st.session_state[crew_widget_key] not in crew_ids
+                ):
+                    st.session_state[crew_widget_key] = current_crew_id
+                with crew_select:
+                    chosen_crew_id = st.selectbox(
+                        "승무원 배치",
+                        crew_ids,
+                        key=crew_widget_key,
+                        format_func=lambda item: (
+                            "-- 승무원 미배치 --"
+                            if item is None
+                            else f"{crews_map[item].get('crewName') or item} "
+                            f"(대지+{crews_map[item].get('crewLandpower') or 0}, "
+                            f"대공+{crews_map[item].get('crewFlypower') or 0})"
+                        ),
+                        label_visibility="collapsed",
+                    )
+                with crew_assign:
+                    if st.button(
+                        "배치 (+)",
+                        key=f"assign_crew_{selected_slot.index}",
+                        use_container_width=True,
+                    ):
+                        if chosen_crew_id is None:
+                            st.warning("배치할 승무원을 선택하세요.")
+                        else:
+                            duplicate = next(
+                                (
+                                    slot
+                                    for slot in train_config.coaches
+                                    if slot is not selected_slot
+                                    and slot.crew
+                                    and slot.crew.get("crewId") == chosen_crew_id
+                                ),
+                                None,
+                            )
+                            if duplicate:
+                                st.error(
+                                    f"[{crews_map[chosen_crew_id].get('crewName')}] 승무원은 "
+                                    f"이미 {duplicate.index}번 객차에 배치되어 있습니다."
+                                )
+                            else:
+                                selected_slot.crew = crews_map[chosen_crew_id]
+                                st.rerun()
+                with crew_unassign:
+                    if st.button(
+                        "해제 (-)",
+                        key=f"unassign_crew_{selected_slot.index}",
+                        use_container_width=True,
+                    ):
+                        selected_slot.crew = None
+                        st.session_state[crew_widget_key] = None
+                        st.rerun()
+
+                if selected_slot.crew:
+                    crew_name = (
+                        selected_slot.crew.get("crewName")
+                        or selected_slot.crew.get("crewId")
+                    )
+                    with st.container(border=True):
+                        st.markdown(
+                            f'<div class="group-title">👨‍✈️ [{selected_slot.index}번 {esc(crew_name)}] '
+                            "레벨 & 스탯 포인트 배분</div>",
+                            unsafe_allow_html=True,
+                        )
+
+                        level_key = f"crew_level_{selected_slot.index}"
+                        rate_key = f"crew_rate_{selected_slot.index}"
+                        if (
+                            level_key not in st.session_state
+                            or st.session_state[level_key]
+                            != selected_slot.crew_level
+                        ):
+                            st.session_state[level_key] = selected_slot.crew_level
+                        if (
+                            rate_key not in st.session_state
+                            or float(st.session_state[rate_key])
+                            != float(train_config.crew_point_rate)
+                        ):
+                            st.session_state[rate_key] = float(
+                                train_config.crew_point_rate
+                            )
+
+                        level_m10, level_m1, level_value, level_p1, level_p10 = (
+                            st.columns([1, 1, 2, 1, 1])
+                        )
+                        with level_m10:
+                            if st.button(
+                                "-10",
+                                key=f"level_m10_{selected_slot.index}",
+                                use_container_width=True,
+                            ):
+                                selected_slot.set_crew_level(
+                                    selected_slot.crew_level - 10
+                                )
+                                st.session_state[level_key] = (
+                                    selected_slot.crew_level
+                                )
+                                st.rerun()
+                        with level_m1:
+                            if st.button(
+                                "-",
+                                key=f"level_m1_{selected_slot.index}",
+                                use_container_width=True,
+                            ):
+                                selected_slot.set_crew_level(
+                                    selected_slot.crew_level - 1
+                                )
+                                st.session_state[level_key] = (
+                                    selected_slot.crew_level
+                                )
+                                st.rerun()
+                        with level_value:
+                            st.number_input(
+                                "레벨(1~50)",
+                                min_value=1,
+                                max_value=50,
+                                step=1,
+                                key=level_key,
+                                on_change=sync_crew_level,
+                                args=(selected_slot, level_key),
+                            )
+                        with level_p1:
+                            if st.button(
+                                "+",
+                                key=f"level_p1_{selected_slot.index}",
+                                use_container_width=True,
+                            ):
+                                selected_slot.set_crew_level(
+                                    selected_slot.crew_level + 1
+                                )
+                                st.session_state[level_key] = (
+                                    selected_slot.crew_level
+                                )
+                                st.rerun()
+                        with level_p10:
+                            if st.button(
+                                "+10",
+                                key=f"level_p10_{selected_slot.index}",
+                                use_container_width=True,
+                            ):
+                                selected_slot.set_crew_level(
+                                    selected_slot.crew_level + 10
+                                )
+                                st.session_state[level_key] = (
+                                    selected_slot.crew_level
+                                )
+                                st.rerun()
+
+                        points_left, rate_right = st.columns([2, 1])
+                        with points_left:
+                            st.markdown(
+                                f'<div class="section-caption cyan-text">남은 포인트: '
+                                f"{selected_slot.get_remaining_points()} / "
+                                f"{selected_slot.get_max_available_points()} pt "
+                                f"(사용:{selected_slot.get_used_points()}pt)</div>",
+                                unsafe_allow_html=True,
+                            )
+                        with rate_right:
+                            st.number_input(
+                                "1pt당 증가율 (%)",
+                                min_value=0.1,
+                                max_value=100.0,
+                                step=0.5,
+                                key=rate_key,
+                                on_change=sync_point_rate,
+                                args=(rate_key,),
+                            )
+
+                        point_specs = [
+                            (
+                                "⚔️ 공격력",
+                                "atk",
+                                "crew_atk_pts",
+                                "#f59e0b",
+                            ),
+                            (
+                                "🛡️ 방어력",
+                                "def",
+                                "crew_def_pts",
+                                "#38bdf8",
+                            ),
+                            (
+                                "🏭 생산/공업",
+                                "prod",
+                                "crew_prod_pts",
+                                "#10b981",
+                            ),
+                        ]
+                        point_keys = {
+                            stat_key: f"crew_{stat_key}_pts_{selected_slot.index}"
+                            for _, stat_key, _, _ in point_specs
+                        }
+                        for _, stat_key, attr_name, _ in point_specs:
+                            if (
+                                point_keys[stat_key] not in st.session_state
+                                or st.session_state[point_keys[stat_key]]
+                                != getattr(selected_slot, attr_name)
+                            ):
+                                st.session_state[point_keys[stat_key]] = getattr(
+                                    selected_slot, attr_name
+                                )
+
+                        for label, stat_key, attr_name, color in point_specs:
+                            point_label, point_minus, point_value, point_plus = (
+                                st.columns([2.4, 0.7, 1.2, 0.7])
+                            )
+                            with point_label:
+                                st.markdown(
+                                    f'<div style="font-weight:700;color:{color};padding-top:7px">{label}</div>',
+                                    unsafe_allow_html=True,
+                                )
+                            with point_minus:
+                                if st.button(
+                                    "-",
+                                    key=f"point_minus_{selected_slot.index}_{stat_key}",
+                                    use_container_width=True,
+                                ):
+                                    setattr(
+                                        selected_slot,
+                                        attr_name,
+                                        max(0, getattr(selected_slot, attr_name) - 1),
+                                    )
+                                    st.session_state[point_keys[stat_key]] = getattr(
+                                        selected_slot, attr_name
+                                    )
+                                    st.rerun()
+                            with point_value:
+                                st.number_input(
+                                    label,
+                                    min_value=0,
+                                    max_value=49,
+                                    step=1,
+                                    key=point_keys[stat_key],
+                                    on_change=sync_crew_points,
+                                    args=(
+                                        selected_slot,
+                                        point_keys["atk"],
+                                        point_keys["def"],
+                                        point_keys["prod"],
+                                    ),
+                                    label_visibility="collapsed",
+                                )
+                            with point_plus:
+                                if st.button(
+                                    "+",
+                                    key=f"point_plus_{selected_slot.index}_{stat_key}",
+                                    use_container_width=True,
+                                ):
+                                    if selected_slot.get_remaining_points() <= 0:
+                                        st.warning(
+                                            "남은 포인트가 없습니다. 먼저 레벨을 올리세요."
+                                        )
+                                    else:
+                                        setattr(
+                                            selected_slot,
+                                            attr_name,
+                                            getattr(selected_slot, attr_name) + 1,
+                                        )
+                                        st.session_state[
+                                            point_keys[stat_key]
+                                        ] = getattr(selected_slot, attr_name)
+                                        st.rerun()
+
+                        preset_reset, preset_atk, preset_def, preset_even = st.columns(
+                            4
+                        )
+                        presets = [
+                            (preset_reset, "초기화", (0, 0, 0), "reset"),
+                            (
+                                preset_atk,
+                                "공격 올인",
+                                (
+                                    selected_slot.get_max_available_points(),
+                                    0,
+                                    0,
+                                ),
+                                "atk",
+                            ),
+                            (
+                                preset_def,
+                                "방어 올인",
+                                (
+                                    0,
+                                    selected_slot.get_max_available_points(),
+                                    0,
+                                ),
+                                "def",
+                            ),
+                        ]
+                        max_points = selected_slot.get_max_available_points()
+                        each = max_points // 3
+                        remainder = max_points % 3
+                        presets.append(
+                            (
+                                preset_even,
+                                "균등 분배",
+                                (
+                                    each + (1 if remainder > 0 else 0),
+                                    each + (1 if remainder > 1 else 0),
+                                    each,
+                                ),
+                                "even",
+                            )
+                        )
+                        for column, label, values, key_suffix in presets:
+                            with column:
+                                if st.button(
+                                    label,
+                                    key=f"point_preset_{selected_slot.index}_{key_suffix}",
+                                    use_container_width=True,
+                                ):
+                                    selected_slot.set_crew_points(*values)
+                                    st.session_state[point_keys["atk"]] = (
+                                        selected_slot.crew_atk_pts
+                                    )
+                                    st.session_state[point_keys["def"]] = (
+                                        selected_slot.crew_def_pts
+                                    )
+                                    st.session_state[point_keys["prod"]] = (
+                                        selected_slot.crew_prod_pts
+                                    )
+                                    st.rerun()
+                else:
+                    st.info(
+                        "승무원을 배치하면 레벨과 스탯 포인트 배분이 활성화됩니다."
+                    )
+
+    # --------------------------------------------------------------------------
+    # RIGHT: Enemy army + run engine
+    # --------------------------------------------------------------------------
+    with right_column:
         with st.container(border=True):
-            st.markdown('<div class="section-head">👾 3. 적 군단 세팅 & 전투 시뮬레이션</div>', unsafe_allow_html=True)
-
-            ba_opts = ["(직접 구성)"] + list(battle_areas_map.keys())
-            sel_ba = st.selectbox("🗺️ 적 편대 프리셋 (BattleArea)", ba_opts)
-
-            if sel_ba != "(직접 구성)":
-                ba_rec = battle_areas_map.get(sel_ba)
-                lvl_id = ba_rec.get("battleLevelId") if ba_rec else sel_ba
-                if st.button(f"'{lvl_id}' 프리셋 불러오기", use_container_width=True):
-                    spawn_recs = loader.get_sheet_data("SpawnData")
-                    enemy_config.clear()
-                    enemy_config.selected_battle_area_id = lvl_id
-                    count_loaded = 0
-                    for sp in spawn_recs:
-                        target_lvl = sp.get("levelId")
-                        if target_lvl and (target_lvl == lvl_id or target_lvl == sel_ba):
-                            mid = sp.get("levelSpawnMonsterId")
-                            if mid and mid in monsters_map:
-                                cur = enemy_config.monster_counts.get(mid, 0)
-                                enemy_config.set_monster_count(mid, cur + 1)
-                                count_loaded += 1
-                    st.success(f"{lvl_id} 프리셋 {count_loaded}마리 로드 완료!")
+            st.markdown(
+                '<div class="group-title">👾 적 군단 선택 & 전투 실행</div>',
+                unsafe_allow_html=True,
+            )
+            area_options = [None] + list(battle_areas_map.keys())
+            selected_area = st.selectbox(
+                "전투 구역 (BattleArea)",
+                area_options,
+                key="battle_area_selector",
+                format_func=lambda item: (
+                    "-- 프리셋 선택 --"
+                    if item is None
+                    else f"{item} [{battle_areas_map[item].get('battleLevelId') or ''}]"
+                ),
+            )
+            if st.button(
+                "선택 프리셋 적용",
+                key="apply_battle_area",
+                use_container_width=True,
+            ):
+                if selected_area is None:
+                    st.warning("적 군단 프리셋을 선택하세요.")
+                else:
+                    loaded_count = apply_battle_area(
+                        selected_area,
+                        battle_areas_map,
+                        monsters_map,
+                        loader,
+                        enemy_config,
+                    )
+                    set_flash(
+                        "success",
+                        f"{selected_area} 프리셋에서 몬스터 {loaded_count}마리를 불러왔습니다.",
+                    )
                     st.rerun()
 
-            # Enemy Summary Card
-            e_sum = enemy_config.get_summary(monsters_map)
-            st.markdown(f"""
-            <div class="info-card" style="border-color: #ef4444;">
-                <div class="info-card-title" style="color: #f87171;">👾 적 군단 현황 요약</div>
-                <div class="info-grid">
-                    <div class="info-item"><span class="info-label">총 수량:</span> <span class="info-val">{e_sum['total_count']}마리 ({e_sum['monster_types_count']}종)</span></div>
-                    <div class="info-item"><span class="info-label">총 체력:</span> <span class="info-val">{e_sum['total_hp']:,}</span></div>
-                    <div class="info-item"><span class="info-label">총 위력:</span> <span class="info-val">{e_sum['total_power']:,}</span></div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(
+                '<div class="section-caption">몬스터 목록 (ID / Name / 레벨 / Area)</div>',
+                unsafe_allow_html=True,
+            )
+            monster_query = st.text_input(
+                "몬스터 검색",
+                key="monster_search",
+                placeholder="검색어를 입력하세요...",
+                label_visibility="collapsed",
+            )
+            monster_rows = loader.get_sheet_data("MonsterData")
+            monster_frame = pd.DataFrame(monster_rows)
+            display_columns = [
+                column
+                for column in [
+                    "monsterId",
+                    "monsterName",
+                    "monsterLv",
+                    "monsterUseArea",
+                ]
+                if column in monster_frame.columns
+            ]
+            if monster_query and not monster_frame.empty:
+                mask = monster_frame.astype(str).apply(
+                    lambda column: column.str.contains(
+                        monster_query, case=False, na=False
+                    )
+                )
+                monster_frame = monster_frame[mask.any(axis=1)]
+            st.dataframe(
+                monster_frame[display_columns]
+                if display_columns
+                else monster_frame,
+                use_container_width=True,
+                height=180,
+                hide_index=True,
+            )
 
-            # Add monster with Quantity Chooser
-            m_opts = list(monsters_map.keys())
-            st.markdown("###### ➕ 몬스터 직접 추가")
-            col_m1, col_m2, col_m3 = st.columns([2.2, 1.1, 1.2])
-            with col_m1:
-                sel_m_id = st.selectbox("몬스터 종류", m_opts, format_func=lambda k: f"{monsters_map[k].get('monsterName')} (HP:{monsters_map[k].get('monsterHp')})")
-            with col_m2:
-                add_cnt = st.number_input("수량", min_value=1, max_value=50, value=1, step=1, key="num_add_m_cnt")
-            with col_m3:
-                st.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
-                if st.button("추가 (+)", key="btn_add_monster_with_count", use_container_width=True):
-                    cur = enemy_config.monster_counts.get(sel_m_id, 0)
-                    enemy_config.set_monster_count(sel_m_id, cur + add_cnt)
-                    st.rerun()
-
-            # Quick Quantity Preset Buttons
-            col_qp1, col_qp2, col_qp3 = st.columns(3)
-            with col_qp1:
-                if st.button(f"+1마리 추가", key="btn_qp_1", use_container_width=True):
-                    cur = enemy_config.monster_counts.get(sel_m_id, 0)
-                    enemy_config.set_monster_count(sel_m_id, cur + 1)
-                    st.rerun()
-            with col_qp2:
-                if st.button(f"+5마리 추가", key="btn_qp_5", use_container_width=True):
-                    cur = enemy_config.monster_counts.get(sel_m_id, 0)
-                    enemy_config.set_monster_count(sel_m_id, cur + 5)
-                    st.rerun()
-            with col_qp3:
-                if st.button(f"+10마리 추가", key="btn_qp_10", use_container_width=True):
-                    cur = enemy_config.monster_counts.get(sel_m_id, 0)
-                    enemy_config.set_monster_count(sel_m_id, cur + 10)
+            filtered_monster_ids = [
+                monster_id
+                for monster_id in monster_frame.get("monsterId", pd.Series()).tolist()
+                if monster_id in monsters_map
+            ]
+            if not filtered_monster_ids:
+                filtered_monster_ids = list(monsters_map.keys())
+            add_enemy_left, add_enemy_count, add_enemy_button = st.columns(
+                [2.4, 0.8, 1]
+            )
+            with add_enemy_left:
+                selected_monster_id = st.selectbox(
+                    "추가할 몬스터",
+                    filtered_monster_ids,
+                    key="monster_to_add",
+                    format_func=lambda item: (
+                        f"{monsters_map[item].get('monsterName') or item} ({item})"
+                    ),
+                    label_visibility="collapsed",
+                )
+            with add_enemy_count:
+                enemy_add_count = st.number_input(
+                    "수량",
+                    min_value=1,
+                    max_value=100,
+                    value=5,
+                    step=1,
+                    key="enemy_add_count",
+                    label_visibility="collapsed",
+                )
+            with add_enemy_button:
+                if st.button(
+                    "적 추가 (+)", key="add_enemy", use_container_width=True
+                ):
+                    current_count = enemy_config.monster_counts.get(
+                        selected_monster_id, 0
+                    )
+                    enemy_config.set_monster_count(
+                        selected_monster_id, current_count + enemy_add_count
+                    )
                     st.rerun()
 
             if enemy_config.monster_counts:
-                st.markdown("###### 📋 편성된 몬스터 목록 (마리수 조절)")
-                for m_k, m_cnt in list(enemy_config.monster_counts.items()):
-                    m_info = monsters_map.get(m_k, {})
-                    c_m_lbl, c_m_m1, c_m_cnt, c_m_p1, c_m_del = st.columns([3, 0.7, 1, 0.7, 0.9])
-                    with c_m_lbl:
-                        st.caption(f"• **{m_info.get('monsterName', m_k)}** (HP:{m_info.get('monsterHp', 0)})")
-                    with c_m_m1:
-                        if st.button("-", key=f"btn_m_sub_{m_k}", use_container_width=True):
-                            enemy_config.set_monster_count(m_k, max(0, m_cnt - 1))
+                for monster_id, count in list(
+                    enemy_config.monster_counts.items()
+                ):
+                    monster = monsters_map.get(monster_id, {})
+                    enemy_info, enemy_minus, enemy_count, enemy_plus = st.columns(
+                        [3.3, 0.55, 0.8, 0.55]
+                    )
+                    with enemy_info:
+                        st.caption(
+                            f"👾 **{monster.get('monsterName') or monster_id}** "
+                            f"({monster_id}) · 개당 HP:{monster.get('monsterHp') or 0}"
+                        )
+                    with enemy_minus:
+                        if st.button(
+                            "-",
+                            key=f"enemy_minus_{monster_id}",
+                            use_container_width=True,
+                        ):
+                            enemy_config.set_monster_count(
+                                monster_id, max(0, count - 1)
+                            )
                             st.rerun()
-                    with c_m_cnt:
-                        st.markdown(f"<div style='text-align:center; font-weight:700; font-size:12px;'>{m_cnt}마리</div>", unsafe_allow_html=True)
-                    with c_m_p1:
-                        if st.button("+", key=f"btn_m_add_{m_k}", use_container_width=True):
-                            enemy_config.set_monster_count(m_k, m_cnt + 1)
+                    with enemy_count:
+                        st.markdown(
+                            f"<div style='text-align:center;font-weight:800;padding-top:6px'>{count}마리</div>",
+                            unsafe_allow_html=True,
+                        )
+                    with enemy_plus:
+                        if st.button(
+                            "+",
+                            key=f"enemy_plus_{monster_id}",
+                            use_container_width=True,
+                        ):
+                            enemy_config.set_monster_count(monster_id, count + 1)
                             st.rerun()
-                    with c_m_del:
-                        if st.button("삭제", key=f"del_m_{m_k}", use_container_width=True):
-                            enemy_config.set_monster_count(m_k, 0)
-                            st.rerun()
+            else:
+                st.caption("편성된 적 몬스터가 없습니다.")
 
-                if st.button("적 군단 전체 비우기", use_container_width=True):
-                    enemy_config.clear()
+            enemy_summary = enemy_config.get_summary(monsters_map)
+            st.markdown(
+                '<div class="enemy-summary">적 군단 합산 스탯 · '
+                f"총 {enemy_summary['total_count']}마리 | "
+                f"HP: {enemy_summary['total_hp']:,.0f} | "
+                f"Atk: {enemy_summary['total_power']:,.0f}</div>",
+                unsafe_allow_html=True,
+            )
+            if st.button(
+                "적 군단 전체 초기화",
+                key="clear_enemy_army",
+                use_container_width=True,
+            ):
+                enemy_config.clear()
+                st.rerun()
+
+            if st.button(
+                "⚡ 전투 시뮬레이션 실행 (Run Engine & View Log)",
+                key="run_battle",
+                type="primary",
+                use_container_width=True,
+            ):
+                if not train_config.locomotive and not train_config.coaches:
+                    st.error("열차(기관차 및 객차)를 먼저 구성하세요.")
+                elif not enemy_config.monster_counts:
+                    st.error("전투 상대 적 몬스터를 1마리 이상 선택하세요.")
+                else:
+                    with st.spinner("전투 엔진을 실행하고 상세 로그를 생성하는 중입니다..."):
+                        engine = BattleSimulationEngine(
+                            train_config, enemy_config, monsters_map
+                        )
+                        summary = engine.run_full_simulation()
+                    st.session_state.last_battle_result = {
+                        "engine": engine,
+                        "summary": summary,
+                        "meta_text": combat_meta_text(
+                            summary, train_config, enemy_config, monsters_map
+                        ),
+                    }
+                    st.success(
+                        f"전투 완료: {summary['result']} · "
+                        f"{summary['duration']}초 · 로그 {summary['log_count']:,}건"
+                    )
+
+            if st.session_state.last_battle_result:
+                battle_result = st.session_state.last_battle_result
+                summary = battle_result["summary"]
+                result_color = (
+                    "#34d399" if "VICTORY" in summary["result"] else "#f87171"
+                )
+                car_lines = []
+                for car in summary["cars"]:
+                    status = (
+                        "💥 파괴됨"
+                        if car["is_destroyed"]
+                        else f"HP: {car['hp_left']}/{car['max_hp']}"
+                    )
+                    car_lines.append(f"• {car['name']}: {status}")
+                st.markdown(
+                    '<div class="result-box">'
+                    f'<div style="font-weight:900;color:{result_color}">{esc(summary["result"])}</div>'
+                    f"<div class='hint'>소요 {summary['duration']}초 · "
+                    f"총 피해 {summary['total_damage_dealt']:,.1f} · "
+                    f"처치 {summary['total_kills']} · 로그 {summary['log_count']:,}건</div>"
+                    f'<div class="mono-box" style="margin-top:5px">{esc(chr(10).join(car_lines))}</div>'
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+                st.caption("상세 이벤트 기록과 다운로드는 2번 전투 로그 탭에서 확인하세요.")
+
+
+# ==============================================================================
+# TAB 2: COMBAT LOG
+# ==============================================================================
+with tab_log:
+    st.markdown(
+        '<div class="group-title">📋 전투 시뮬레이션 설정 및 결과 메타데이터 요약</div>',
+        unsafe_allow_html=True,
+    )
+    if not st.session_state.last_battle_result:
+        st.info(
+            "1번 워크숍에서 전투 시뮬레이션을 실행하면 열차 구성, 적 구성 및 결과가 기록됩니다."
+        )
+    else:
+        battle_result = st.session_state.last_battle_result
+        engine = battle_result["engine"]
+        summary = battle_result["summary"]
+        meta_text = battle_result["meta_text"]
+        log_df = combat_log_dataframe(engine)
+
+        st.markdown(
+            f'<div class="mono-box">{esc(meta_text)}</div>',
+            unsafe_allow_html=True,
+        )
+        download_meta, download_excel, download_csv = st.columns([1, 1.35, 1.35])
+        with download_meta:
+            st.download_button(
+                "📋 요약 텍스트 저장",
+                data=meta_text.encode("utf-8-sig"),
+                file_name="combat_log_summary.txt",
+                mime="text/plain",
+                use_container_width=True,
+            )
+        with download_excel:
+            st.download_button(
+                "📊 엑셀 저장 (.xlsx · 시트 2개)",
+                data=build_excel_report(summary, meta_text, log_df),
+                file_name="combat_log_result.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
+        with download_csv:
+            st.download_button(
+                "📄 CSV 다중 저장 (.zip · 파일 2개)",
+                data=build_csv_zip(meta_text, log_df),
+                file_name="combat_log_csv_files.zip",
+                mime="application/zip",
+                use_container_width=True,
+            )
+
+        log_search = st.text_input(
+            "🔍 전투 로그 검색",
+            key="combat_log_search",
+            placeholder="이벤트, 공격자, 대상, 상세 내용을 검색하세요...",
+        )
+        filtered_log_df = log_df
+        if log_search and not log_df.empty:
+            mask = log_df.astype(str).apply(
+                lambda column: column.str.contains(log_search, case=False, na=False)
+            )
+            filtered_log_df = log_df[mask.any(axis=1)]
+        st.dataframe(
+            filtered_log_df,
+            use_container_width=True,
+            height=510,
+            hide_index=True,
+        )
+        st.caption(
+            f"표시 {len(filtered_log_df):,}건 / 전체 {len(log_df):,}건의 전투 이벤트 로그"
+        )
+
+
+# ==============================================================================
+# TAB 3: RAW DATA INSPECTOR
+# ==============================================================================
+with tab_inspector:
+    sheet_names = list(loader.data.keys())
+    if not sheet_names:
+        st.warning("로드된 엑셀 시트가 없습니다.")
+    else:
+        sheet_tabs = st.tabs(
+            [
+                f"{sheet_name} ({len(loader.get_sheet_data(sheet_name))}건)"
+                for sheet_name in sheet_names
+            ]
+        )
+        for sheet_tab, sheet_name in zip(sheet_tabs, sheet_names):
+            with sheet_tab:
+                records = loader.get_sheet_data(sheet_name)
+                frame = pd.DataFrame(records)
+                query = st.text_input(
+                    "🔍 검색",
+                    key=f"inspector_search_{sheet_name}",
+                    placeholder="검색어를 입력하세요...",
+                )
+                if query and not frame.empty:
+                    mask = frame.astype(str).apply(
+                        lambda column: column.str.contains(
+                            query, case=False, na=False
+                        )
+                    )
+                    frame = frame[mask.any(axis=1)]
+                st.dataframe(
+                    arrow_safe_dataframe(frame),
+                    use_container_width=True,
+                    height=550,
+                    hide_index=True,
+                )
+                st.caption(
+                    f"표시 {len(frame):,}건 / 전체 {len(records):,}건 · "
+                    f"컬럼 {len(loader.get_sheet_columns(sheet_name))}개"
+                )
+
+
+# ==============================================================================
+# TAB 4: CREW GROWTH MONTE CARLO
+# ==============================================================================
+with tab_crew:
+    crew_left, crew_right = st.columns([380, 900], gap="small")
+
+    with crew_left:
+        with st.container(border=True):
+            st.markdown(
+                '<div class="group-title">👨‍✈️ 1. 시뮬레이션 대상 승무원 선택</div>',
+                unsafe_allow_html=True,
+            )
+            crew_ids = list(crews_map.keys())
+            selected_sim_crew_id = st.selectbox(
+                "시뮬레이션 대상 승무원",
+                crew_ids,
+                key="simulation_crew",
+                format_func=lambda item: (
+                    f"[{crews_map[item].get('crewType') or '일반'}] "
+                    f"{crews_map[item].get('crewName') or item} ({item})"
+                ),
+            )
+            sim_crew = crews_map[selected_sim_crew_id]
+            sim_crew_name = (
+                sim_crew.get("crewName") or selected_sim_crew_id
+            )
+            sim_crew_type = str(sim_crew.get("crewType") or "일반").strip()
+            crew_info = (
+                f"• 승무원: {sim_crew_name} (ID: {selected_sim_crew_id})\n"
+                f"• 유형: {sim_crew_type}\n"
+                f"• 기본 스탯: 대지위력:{sim_crew.get('crewLandpower') or 0} | "
+                f"대공위력:{sim_crew.get('crewFlypower') or 0} | "
+                f"Def:{sim_crew.get('crewDef') or 0} | "
+                f"생산:{float(sim_crew.get('crewProduct') or 0):.1f} | "
+                f"공업:{float(sim_crew.get('crewIndustry') or 0):.1f}"
+            )
+            st.markdown(
+                f'<div class="mono-box">{esc(crew_info)}</div>',
+                unsafe_allow_html=True,
+            )
+
+        with st.container(border=True):
+            st.markdown(
+                '<div class="group-title">🎯 2. 주스탯(유형별) 및 레벨업 성장 확률 설정</div>',
+                unsafe_allow_html=True,
+            )
+            crew_id_text = str(selected_sim_crew_id)
+            if (
+                "전투" in sim_crew_type
+                or "공격" in sim_crew_type
+                or "Batt" in crew_id_text
+            ):
+                primary_stat = "atk"
+                primary_label = "⚔️ 공격력 (유형: 전투형)"
+            elif "방어" in sim_crew_type or "Def" in crew_id_text:
+                primary_stat = "def"
+                primary_label = "🛡️ 방어력 (유형: 방어형)"
+            elif (
+                "생산" in sim_crew_type
+                or "공업" in sim_crew_type
+                or "Prod" in crew_id_text
+            ):
+                primary_stat = "prod"
+                primary_label = "🏭 생산/공업 (유형: 생산형)"
+            else:
+                primary_stat = "even"
+                primary_label = "⚖️ 밸런스/균등형 (기타)"
+
+            st.markdown(
+                f'<div class="selected-title">🎯 주스탯: {primary_label}</div>',
+                unsafe_allow_html=True,
+            )
+            main_probability = st.number_input(
+                "⭐ 주스탯 확률 설정 (%)",
+                min_value=0.0,
+                max_value=100.0,
+                value=50.0,
+                step=5.0,
+                key="crew_main_probability",
+            )
+            preset_columns = st.columns(6)
+            for preset_column, probability in zip(
+                preset_columns, [40, 50, 60, 70, 80, 100]
+            ):
+                with preset_column:
+                    if st.button(
+                        f"{probability}%",
+                        key=f"probability_preset_{probability}",
+                        use_container_width=True,
+                    ):
+                        st.session_state.crew_main_probability = float(probability)
+                        st.rerun()
+
+            sub_probability = max(0.0, (100.0 - main_probability) / 2.0)
+            if primary_stat == "atk":
+                probability_atk, probability_def, probability_prod = (
+                    main_probability,
+                    sub_probability,
+                    sub_probability,
+                )
+            elif primary_stat == "def":
+                probability_atk, probability_def, probability_prod = (
+                    sub_probability,
+                    main_probability,
+                    sub_probability,
+                )
+            elif primary_stat == "prod":
+                probability_atk, probability_def, probability_prod = (
+                    sub_probability,
+                    sub_probability,
+                    main_probability,
+                )
+            else:
+                probability_atk, probability_def, probability_prod = (
+                    main_probability,
+                    sub_probability,
+                    sub_probability,
+                )
+
+            stat_cards(
+                [
+                    (
+                        "⚔️ 공격력 확률",
+                        f"{probability_atk:.1f}%"
+                        + (" (⭐주스탯)" if primary_stat == "atk" else " (보조)"),
+                        "#f59e0b",
+                    ),
+                    (
+                        "🛡️ 방어력 확률",
+                        f"{probability_def:.1f}%"
+                        + (" (⭐주스탯)" if primary_stat == "def" else " (보조)"),
+                        "#38bdf8",
+                    ),
+                    (
+                        "🏭 생산/공업 확률",
+                        f"{probability_prod:.1f}%"
+                        + (" (⭐주스탯)" if primary_stat == "prod" else " (보조)"),
+                        "#10b981",
+                    ),
+                    (
+                        "확률 합계",
+                        f"{probability_atk + probability_def + probability_prod:.1f}%",
+                        "#a78bfa",
+                    ),
+                ]
+            )
+            st.caption("규칙: 나머지 2개 보조스탯 확률 = (100% - 주스탯%) ÷ 2")
+
+        with st.container(border=True):
+            st.markdown(
+                '<div class="group-title">⚙️ 3. 시뮬레이션 파라미터</div>',
+                unsafe_allow_html=True,
+            )
+            target_level = st.number_input(
+                "목표 레벨 (2~50)",
+                min_value=2,
+                max_value=50,
+                value=50,
+                step=1,
+                key="crew_target_level",
+            )
+            growth_rolls = target_level - 1
+            st.caption(f"= {growth_rolls}회 성장")
+            point_rate = st.number_input(
+                "1pt당 스탯 증가율 (%)",
+                min_value=0.1,
+                max_value=100.0,
+                value=1.0,
+                step=0.5,
+                key="crew_sim_point_rate",
+            )
+            trial_count = st.number_input(
+                "시뮬레이션 반복 횟수",
+                min_value=1,
+                max_value=100000,
+                value=1000,
+                step=100,
+                key="crew_trial_count",
+            )
+            trial_presets = st.columns(4)
+            for preset_column, trials in zip(
+                trial_presets, [1, 100, 1000, 10000]
+            ):
+                with preset_column:
+                    if st.button(
+                        f"{trials:,}회",
+                        key=f"trial_preset_{trials}",
+                        use_container_width=True,
+                    ):
+                        st.session_state.crew_trial_count = trials
+                        st.rerun()
+
+        if st.button(
+            "🎲 랜덤 성장 시뮬레이션 실행 (Run)",
+            key="run_crew_simulation",
+            type="primary",
+            use_container_width=True,
+        ):
+            probability_sum = (
+                probability_atk + probability_def + probability_prod
+            )
+            weight_atk = probability_atk / probability_sum
+            weight_def = probability_def / probability_sum
+            weight_prod = probability_prod / probability_sum
+
+            attack_results = []
+            defense_results = []
+            production_results = []
+            single_roll_logs = []
+
+            with st.spinner(
+                f"{int(trial_count):,}회 몬테카를로 시뮬레이션을 실행하는 중입니다..."
+            ):
+                for trial_index in range(int(trial_count)):
+                    attack_count = 0
+                    defense_count = 0
+                    production_count = 0
+                    for roll_index in range(growth_rolls):
+                        roll_value = random.random()
+                        if roll_value < weight_atk:
+                            attack_count += 1
+                            hit_name = "⚔️ 공격력"
+                        elif roll_value < weight_atk + weight_def:
+                            defense_count += 1
+                            hit_name = "🛡️ 방어력"
+                        else:
+                            production_count += 1
+                            hit_name = "🏭 생산/공업"
+                        if int(trial_count) == 1:
+                            single_roll_logs.append(
+                                f"[Lv. {roll_index + 2:2d}] 🎲 주사위 "
+                                f"{roll_value * 100:5.1f}% ➔ {hit_name} +1pt 획득 | "
+                                f"현재 누적 (⚔️:{attack_count}pt, "
+                                f"🛡️:{defense_count}pt, 🏭:{production_count}pt)"
+                            )
+                    attack_results.append(attack_count)
+                    defense_results.append(defense_count)
+                    production_results.append(production_count)
+
+            st.session_state.last_crew_sim_result = {
+                "crew": sim_crew,
+                "target_level": int(target_level),
+                "rolls": growth_rolls,
+                "trials": int(trial_count),
+                "rate": float(point_rate),
+                "probabilities": (
+                    probability_atk,
+                    probability_def,
+                    probability_prod,
+                ),
+                "attack": attack_results,
+                "defense": defense_results,
+                "production": production_results,
+                "single_logs": single_roll_logs,
+            }
+            st.rerun()
+
+        if st.button(
+            "🎯 시뮬레이션 결과 워크숍 적용 (동일 승무원 일괄 동기화)",
+            key="apply_crew_simulation",
+            use_container_width=True,
+        ):
+            result = st.session_state.last_crew_sim_result
+            if not result:
+                st.warning("먼저 시뮬레이션을 1회 이상 실행하세요.")
+            else:
+                result_crew_id = result["crew"].get("crewId")
+                matching_slots = [
+                    slot
+                    for slot in train_config.coaches
+                    if slot.crew and slot.crew.get("crewId") == result_crew_id
+                ]
+                if not matching_slots:
+                    st.warning(
+                        f"현재 열차에 [{result['crew'].get('crewName')}] 승무원이 배치되어 있지 않습니다."
+                    )
+                else:
+                    sample_attack = result["attack"][0]
+                    sample_defense = result["defense"][0]
+                    sample_production = result["production"][0]
+                    for slot in matching_slots:
+                        slot.set_crew_level(result["target_level"])
+                        slot.set_crew_points(
+                            sample_attack, sample_defense, sample_production
+                        )
+                    st.session_state.selected_coach_idx = matching_slots[0].index
+                    set_flash(
+                        "success",
+                        f"[{result['crew'].get('crewName')}] 승무원이 탑승한 "
+                        f"{len(matching_slots)}개 객차에 Lv.{result['target_level']} / "
+                        f"공격 {sample_attack}pt / 방어 {sample_defense}pt / "
+                        f"생산 {sample_production}pt를 적용했습니다.",
+                    )
                     st.rerun()
 
-            st.markdown("<hr style='margin: 14px 0; border-color: #334155;'>", unsafe_allow_html=True)
+    with crew_right:
+        result = st.session_state.last_crew_sim_result
+        if not result:
+            st.info(
+                "좌측에서 파라미터를 설정하고 랜덤 성장 시뮬레이션을 실행하면 결과가 표시됩니다."
+            )
+        else:
+            attack_results = result["attack"]
+            defense_results = result["defense"]
+            production_results = result["production"]
+            trials = result["trials"]
+            rolls = result["rolls"]
+            rate = result["rate"]
+            probability_atk, probability_def, probability_prod = result[
+                "probabilities"
+            ]
 
-            # BIG RUN SIMULATION BUTTON
-            if st.button("⚡ 전투 시뮬레이션 실행 (Run Simulation)", type="primary", use_container_width=True):
-                if not enemy_config.monster_counts:
-                    st.error("전투를 실행할 적 몬스터가 없습니다!")
-                else:
-                    engine = BattleSimulationEngine(train_config, enemy_config, monsters_map)
-                    summary = engine.run_simulation()
-                    st.session_state.last_battle_result = {
-                        "summary": summary,
-                        "engine": engine
+            average_attack = sum(attack_results) / trials
+            average_defense = sum(defense_results) / trials
+            average_production = sum(production_results) / trials
+            min_attack, max_attack = min(attack_results), max(attack_results)
+            min_defense, max_defense = min(defense_results), max(defense_results)
+            min_production, max_production = (
+                min(production_results),
+                max(production_results),
+            )
+            std_attack = math.sqrt(
+                sum((value - average_attack) ** 2 for value in attack_results)
+                / trials
+            )
+            std_defense = math.sqrt(
+                sum((value - average_defense) ** 2 for value in defense_results)
+                / trials
+            )
+            std_production = math.sqrt(
+                sum(
+                    (value - average_production) ** 2
+                    for value in production_results
+                )
+                / trials
+            )
+            sorted_attack = sorted(attack_results)
+            sorted_defense = sorted(defense_results)
+            sorted_production = sorted(production_results)
+
+            dashboard_attack, dashboard_defense, dashboard_production = st.columns(3)
+            with dashboard_attack:
+                st.metric(
+                    "⚔️ 공격력 포인트 기대값",
+                    f"{average_attack:.2f} pt",
+                    f"{average_attack / rolls * 100:.1f}% · {min_attack}~{max_attack}pt",
+                )
+            with dashboard_defense:
+                st.metric(
+                    "🛡️ 방어력 포인트 기대값",
+                    f"{average_defense:.2f} pt",
+                    f"{average_defense / rolls * 100:.1f}% · {min_defense}~{max_defense}pt",
+                )
+            with dashboard_production:
+                st.metric(
+                    "🏭 생산/공업 포인트 기대값",
+                    f"{average_production:.2f} pt",
+                    f"{average_production / rolls * 100:.1f}% · {min_production}~{max_production}pt",
+                )
+
+            result_crew = result["crew"]
+            base_land = float(result_crew.get("crewLandpower") or 0)
+            base_fly = float(result_crew.get("crewFlypower") or 0)
+            base_defense = float(result_crew.get("crewDef") or 0)
+            base_product = float(result_crew.get("crewProduct") or 0)
+            base_industry = float(result_crew.get("crewIndustry") or 0)
+            attack_multiplier = 1 + average_attack * rate / 100
+            defense_multiplier = 1 + average_defense * rate / 100
+            production_multiplier = 1 + average_production * rate / 100
+
+            stat_rows = [
+                (
+                    "⚔️ 대지 위력 (Landpower)",
+                    base_land,
+                    average_attack,
+                    attack_multiplier,
+                    base_land * attack_multiplier,
+                    base_land * (1 + min_attack * rate / 100),
+                    base_land * (1 + max_attack * rate / 100),
+                ),
+                (
+                    "🏹 대공 위력 (Flypower)",
+                    base_fly,
+                    average_attack,
+                    attack_multiplier,
+                    base_fly * attack_multiplier,
+                    base_fly * (1 + min_attack * rate / 100),
+                    base_fly * (1 + max_attack * rate / 100),
+                ),
+                (
+                    "🛡️ 방어력 (Def)",
+                    base_defense,
+                    average_defense,
+                    defense_multiplier,
+                    base_defense * defense_multiplier,
+                    base_defense * (1 + min_defense * rate / 100),
+                    base_defense * (1 + max_defense * rate / 100),
+                ),
+                (
+                    "🌾 생산력 (Product)",
+                    base_product,
+                    average_production,
+                    production_multiplier,
+                    base_product * production_multiplier,
+                    base_product * (1 + min_production * rate / 100),
+                    base_product * (1 + max_production * rate / 100),
+                ),
+                (
+                    "⚙️ 공업력 (Industry)",
+                    base_industry,
+                    average_production,
+                    production_multiplier,
+                    base_industry * production_multiplier,
+                    base_industry * (1 + min_production * rate / 100),
+                    base_industry * (1 + max_production * rate / 100),
+                ),
+            ]
+            stats_frame = pd.DataFrame(
+                [
+                    {
+                        "스탯 항목": name,
+                        "기본 수치(Base)": f"{base:.1f}",
+                        "평균 획득 포인트": f"{points:.2f} pt",
+                        "평균 배율(Mult)": f"{multiplier:.3f}x (+{(multiplier - 1) * 100:.1f}%)",
+                        "평균 최종 스탯": f"{average_stat:.2f}",
+                        "최저 결과(Min)": f"{min_stat:.2f}",
+                        "최고 결과(Max)": f"{max_stat:.2f}",
                     }
-                    st.success(f"전투 종료! 결과: {summary['result']} (소요시간: {summary['duration']:.1f}초)")
-
-    # 4. 2D Interactive Battle Viewport Result
-    if st.session_state.last_battle_result:
-        st.markdown("<hr style='margin: 16px 0; border-color: #334155;'>", unsafe_allow_html=True)
-        st.markdown("##### 🎮 2D 전투 시뮬레이션 결과 및 지표 분석")
-        res = st.session_state.last_battle_result
-        summ = res["summary"]
-
-        r_c1, r_c2, r_c3, r_c4 = st.columns(4)
-        with r_c1:
-            st.metric("🏆 전투 결과", summ["result"])
-        with r_c2:
-            st.metric("⏱️ 소요 시간", f"{summ['duration']:.1f} 초")
-        with r_c3:
-            st.metric("💥 가한 총 피해량", f"{summ['total_damage_dealt']:,}")
-        with r_c4:
-            st.metric("👾 처치 몬스터 수", f"{summ['total_kills']} / {summ['total_monsters']} 마리")
-
-# ==============================================================================
-# TAB 2: 📋 전투 로그 시트 (Combat Log Sheet)
-# ==============================================================================
-with tab2:
-    st.markdown('<div class="section-head">📋 틱(Tick) 단위 상세 전투 이벤트 로그 시트</div>', unsafe_allow_html=True)
-    if st.session_state.last_battle_result:
-        engine = st.session_state.last_battle_result["engine"]
-        logs = engine.logs
-        if logs:
-            df_logs = pd.DataFrame(logs)
-            st.dataframe(df_logs, use_container_width=True, height=520)
-
-            csv_data = df_logs.to_csv(index=False).encode('utf-8-sig')
-            st.download_button(
-                "📥 엑셀 호환 전투 로그 CSV 다운로드",
-                data=csv_data,
-                file_name="siecletrain_battle_log.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
-        else:
-            st.info("기록된 로그 데이터가 없습니다.")
-    else:
-        st.info("💡 1번 워크숍 탭에서 '전투 시뮬레이션 실행' 버튼을 누르면 틱 단위 상세 전투 로그가 여기에 기록됩니다.")
-
-# ==============================================================================
-# TAB 3: 🔍 Raw 데이터 검증 (Data Inspector)
-# ==============================================================================
-with tab3:
-    st.markdown('<div class="section-head">🔍 엑셀 Raw 데이터 인스펙터</div>', unsafe_allow_html=True)
-    sheet_names = list(loader.data.keys())
-    if sheet_names:
-        sel_sheet = st.selectbox("확인할 엑셀 데이터 시트 선택", sheet_names)
-        records = loader.get_sheet_data(sel_sheet)
-        if records:
-            df_sheet = pd.DataFrame(records)
-            st.dataframe(df_sheet, use_container_width=True, height=550)
-            st.caption(f"총 {len(records)} 건의 레코드가 정상 로드되었습니다.")
-        else:
-            st.info("해당 시트에 데이터가 없습니다.")
-
-# ==============================================================================
-# TAB 4: 🎲 승무원 레벨업 랜덤 성장 시뮬레이터 (Monte Carlo)
-# ==============================================================================
-with tab4:
-    st.markdown('<div class="section-head">🎲 4. 승무원 레벨업 랜덤 성장 몬테카를로 시뮬레이터</div>', unsafe_allow_html=True)
-
-    col_sim_left, col_sim_right = st.columns([1.15, 1.85])
-
-    # Left Panel: Crew Selection & Probabilities
-    with col_sim_left:
-        with st.container(border=True):
-            st.markdown("##### 👨‍✈️ 1. 대상 승무원 선택")
-            c_list = list(crews_map.keys())
-            sel_sim_cid = st.selectbox(
-                "시뮬레이션 대상 승무원", c_list,
-                format_func=lambda k: f"{crews_map[k].get('crewName')} [{crews_map[k].get('crewType')}] ({k})"
-            )
-            sim_cdata = crews_map[sel_sim_cid]
-            cname = sim_cdata.get("crewName") or sel_sim_cid
-            ctype = str(sim_cdata.get("crewType") or "일반").strip()
-
-            st.markdown(f'''
-            <div class="info-card" style="border-color: #3b82f6;">
-                <div class="info-card-title">👨‍✈️ {cname} [{ctype}]</div>
-                <div class="info-grid">
-                    <div class="info-item"><span class="info-label">대지위력:</span> <span class="info-val">{sim_cdata.get("crewLandpower",0)}</span></div>
-                    <div class="info-item"><span class="info-label">대공위력:</span> <span class="info-val">{sim_cdata.get("crewFlypower",0)}</span></div>
-                    <div class="info-item"><span class="info-label">Def:</span> <span class="info-val">{sim_cdata.get("crewDef",0)}</span></div>
-                    <div class="info-item"><span class="info-label">생산력:</span> <span class="info-val">{sim_cdata.get("crewProduct",0.0):.1f}</span></div>
-                </div>
-            </div>
-            ''', unsafe_allow_html=True)
-
-            # Primary Stat Detection
-            cid_str = str(sel_sim_cid)
-            if "전투" in ctype or "공격" in ctype or "Batt" in cid_str:
-                main_stat_name = "⚔️ 공격력 (Attack)"
-                main_stat_key = "atk"
-            elif "방어" in ctype or "Def" in cid_str:
-                main_stat_name = "🛡️ 방어력 (Defense)"
-                main_stat_key = "def"
-            elif "생산" in ctype or "공업" in ctype or "Prod" in cid_str:
-                main_stat_name = "🏭 생산/공업 (Production)"
-                main_stat_key = "prod"
-            else:
-                main_stat_name = "⚖️ 밸런스/균등"
-                main_stat_key = "even"
-
-            st.markdown(f"##### 🎯 2. 주스탯 확률 설정 (주스탯: **{main_stat_name}**)")
-            main_prob = st.slider("⭐ 주스탯 상승 확률 (%)", min_value=0.0, max_value=100.0, value=50.0, step=5.0)
-            sub_prob = max(0.0, (100.0 - main_prob) / 2.0)
-
-            # Calculate exact probs
-            if main_stat_key == "atk":
-                p_atk, p_def, p_prod = main_prob, sub_prob, sub_prob
-            elif main_stat_key == "def":
-                p_atk, p_def, p_prod = sub_prob, main_prob, sub_prob
-            elif main_stat_key == "prod":
-                p_atk, p_def, p_prod = sub_prob, sub_prob, main_prob
-            else:
-                p_atk, p_def, p_prod = main_prob, sub_prob, sub_prob
-
-            st.markdown(f"""
-            <div class="info-card">
-                <div class="info-grid">
-                    <div class="info-item"><span class="info-label">⚔️ 공격력:</span> <span class="info-val">{p_atk:.1f}% {'(⭐주스탯)' if main_stat_key=='atk' else '(보조)'}</span></div>
-                    <div class="info-item"><span class="info-label">🛡️ 방어력:</span> <span class="info-val">{p_def:.1f}% {'(⭐주스탯)' if main_stat_key=='def' else '(보조)'}</span></div>
-                    <div class="info-item"><span class="info-label">🏭 생산력:</span> <span class="info-val">{p_prod:.1f}% {'(⭐주스탯)' if main_stat_key=='prod' else '(보조)'}</span></div>
-                </div>
-                <div style="font-size:11px; color:#10b981; margin-top:6px; font-weight:600;">✓ 확률 합계: {p_atk + p_def + p_prod:.1f}% (항상 100% 자동 유지)</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-            st.markdown("##### ⚙️ 3. 시뮬레이션 파라미터")
-            sim_target_lvl = st.number_input("목표 레벨 (1~50)", min_value=2, max_value=50, value=50, step=1)
-            sim_rolls = sim_target_lvl - 1
-            sim_rate = st.number_input("1pt당 스탯 증가율 (%)", min_value=0.1, max_value=100.0, value=1.0, step=0.5)
-            sim_trials = st.selectbox("반복 횟수 (Trials)", [1, 100, 1000, 10000], index=2)
-
-            st.markdown("<hr style='margin: 12px 0; border-color: #334155;'>", unsafe_allow_html=True)
-            btn_run_sim = st.button("🎲 몬테카를로 시뮬레이션 실행 (Run)", type="primary", use_container_width=True)
-
-            if btn_run_sim:
-                w_sum = p_atk + p_def + p_prod
-                w_a, w_d, w_p = p_atk/w_sum, p_def/w_sum, p_prod/w_sum
-
-                atk_res, def_res, prod_res = [], [], []
-                single_logs = []
-
-                for t_i in range(sim_trials):
-                    a_c, d_c, p_c = 0, 0, 0
-                    for r_i in range(sim_rolls):
-                        rv = random.random()
-                        if rv < w_a:
-                            a_c += 1
-                            tag = "⚔️ 공격력"
-                        elif rv < w_a + w_d:
-                            d_c += 1
-                            tag = "🛡️ 방어력"
-                        else:
-                            p_c += 1
-                            tag = "🏭 생산/공업"
-
-                        if sim_trials == 1:
-                            single_logs.append(f"[Lv. {r_i+2:02d}] 🎲 주사위 {rv*100:5.1f}% ➔ {tag} +1pt (누적: ⚔️:{a_c}pt, 🛡️:{d_c}pt, 🏭:{p_c}pt)")
-
-                    atk_res.append(a_c)
-                    def_res.append(d_c)
-                    prod_res.append(p_c)
-
-                st.session_state.last_crew_sim_result = {
-                    "cdata": sim_cdata,
-                    "target_lvl": sim_target_lvl,
-                    "rolls": sim_rolls,
-                    "trials": sim_trials,
-                    "rate": sim_rate,
-                    "atk_res": atk_res,
-                    "def_res": def_res,
-                    "prod_res": prod_res,
-                    "single_logs": single_logs,
-                    "p_atk": p_atk,
-                    "p_def": p_def,
-                    "p_prod": p_prod
-                }
-
-            # Apply to Workshop Button
-            if st.session_state.last_crew_sim_result:
-                if st.button("🎯 시뮬레이션 결과 워크숍 적용 (동일 승무원 일괄 동기화)", use_container_width=True):
-                    s_res = st.session_state.last_crew_sim_result
-                    s_cid = s_res["cdata"].get("crewId")
-                    s_lvl = s_res["target_lvl"]
-                    s_a = s_res["atk_res"][0]
-                    s_d = s_res["def_res"][0]
-                    s_p = s_res["prod_res"][0]
-
-                    matching_slots = [s for s in train_config.coaches if s.crew and s.crew.get("crewId") == s_cid]
-                    if matching_slots:
-                        for s in matching_slots:
-                            s.set_crew_level(s_lvl)
-                            s.set_crew_points(s_a, s_d, s_p)
-                        st.success(f"[{s_res['cdata'].get('crewName')}] 승무원이 탑승한 {len(matching_slots)}개 객차에 레벨 및 스탯이 일괄 동기화되었습니다!")
-                    else:
-                        st.warning(f"현재 열차에 [{s_res['cdata'].get('crewName')}] 승무원이 배치되어 있지 않습니다. 1번 탭에서 승무원을 먼저 배치하세요.")
-
-    # Right Panel: Results & Analytics
-    with col_sim_right:
-        with st.container(border=True):
-            if st.session_state.last_crew_sim_result:
-                s_res = st.session_state.last_crew_sim_result
-                trials = s_res["trials"]
-                rolls = s_res["rolls"]
-                rate = s_res["rate"]
-                a_res, d_res, p_res = s_res["atk_res"], s_res["def_res"], s_res["prod_res"]
-
-                avg_a, avg_d, avg_p = sum(a_res)/trials, sum(d_res)/trials, sum(p_res)/trials
-                min_a, max_a = min(a_res), max(a_res)
-                min_d, max_d = min(d_res), max(d_res)
-                min_p, max_p = min(p_res), max(p_res)
-
-                st.markdown("##### 📊 몬테카를로 시뮬레이션 통계 대시보드")
-                k1, k2, k3 = st.columns(3)
-                with k1:
-                    st.metric("⚔️ 공격력 포인트 평균", f"{avg_a:.2f} pt", f"{avg_a/rolls*100:.1f}% [최소 {min_a} ~ 최대 {max_a}]")
-                with k2:
-                    st.metric("🛡️ 방어력 포인트 평균", f"{avg_d:.2f} pt", f"{avg_d/rolls*100:.1f}% [최소 {min_d} ~ 최대 {max_d}]")
-                with k3:
-                    st.metric("🏭 생산/공업 포인트 평균", f"{avg_p:.2f} pt", f"{avg_p/rolls*100:.1f}% [최소 {min_p} ~ 최대 {max_p}]")
-
-                # Final Expected Stats Table
-                cd = s_res["cdata"]
-                b_land = float(cd.get("crewLandpower") or 0)
-                b_fly = float(cd.get("crewFlypower") or 0)
-                b_def = float(cd.get("crewDef") or 0)
-                b_prod = float(cd.get("crewProduct") or 0)
-                b_ind = float(cd.get("crewIndustry") or 0)
-
-                m_avg_a = 1.0 + (avg_a * rate / 100.0)
-                m_avg_d = 1.0 + (avg_d * rate / 100.0)
-                m_avg_p = 1.0 + (avg_p * rate / 100.0)
-
-                stats_table_data = [
-                    {"스탯 항목": "⚔️ 대지 위력 (Landpower)", "기본 수치": b_land, "평균 획득 pt": f"{avg_a:.2f}", "평균 배율": f"{m_avg_a:.3f}x", "평균 최종 스탯": f"{b_land * m_avg_a:.2f}", "최저(Min)": f"{b_land * (1.0 + min_a*rate/100.0):.2f}", "최고(Max)": f"{b_land * (1.0 + max_a*rate/100.0):.2f}"},
-                    {"스탯 항목": "🏹 대공 위력 (Flypower)", "기본 수치": b_fly, "평균 획득 pt": f"{avg_a:.2f}", "평균 배율": f"{m_avg_a:.3f}x", "평균 최종 스탯": f"{b_fly * m_avg_a:.2f}", "최저(Min)": f"{b_fly * (1.0 + min_a*rate/100.0):.2f}", "최고(Max)": f"{b_fly * (1.0 + max_a*rate/100.0):.2f}"},
-                    {"스탯 항목": "🛡️ 방어력 (Def)", "기본 수치": b_def, "평균 획득 pt": f"{avg_d:.2f}", "평균 배율": f"{m_avg_d:.3f}x", "평균 최종 스탯": f"{b_def * m_avg_d:.2f}", "최저(Min)": f"{b_def * (1.0 + min_d*rate/100.0):.2f}", "최고(Max)": f"{b_def * (1.0 + max_d*rate/100.0):.2f}"},
-                    {"스탯 항목": "🌾 생산력 (Product)", "기본 수치": b_prod, "평균 획득 pt": f"{avg_p:.2f}", "평균 배율": f"{m_avg_p:.3f}x", "평균 최종 스탯": f"{b_prod * m_avg_p:.2f}", "최저(Min)": f"{b_prod * (1.0 + min_p*rate/100.0):.2f}", "최고(Max)": f"{b_prod * (1.0 + max_p*rate/100.0):.2f}"},
-                    {"스탯 항목": "⚙️ 공업력 (Industry)", "기본 수치": b_ind, "평균 획득 pt": f"{avg_p:.2f}", "평균 배율": f"{m_avg_p:.3f}x", "평균 최종 스탯": f"{b_ind * m_avg_p:.2f}", "최저(Min)": f"{b_ind * (1.0 + min_p*rate/100.0):.2f}", "최고(Max)": f"{b_ind * (1.0 + max_p*rate/100.0):.2f}"},
+                    for (
+                        name,
+                        base,
+                        points,
+                        multiplier,
+                        average_stat,
+                        min_stat,
+                        max_stat,
+                    ) in stat_rows
                 ]
-                st.dataframe(pd.DataFrame(stats_table_data), use_container_width=True)
+            )
+            st.markdown(
+                '<div class="selected-title">📊 승무원 레벨업 최종 스탯 기대값 및 최소/최대 범위 분석</div>',
+                unsafe_allow_html=True,
+            )
+            st.dataframe(
+                stats_frame,
+                use_container_width=True,
+                height=215,
+                hide_index=True,
+            )
 
-                # Step-by-step Log (1 Trial) or Histogram (Multi trials)
+            analytics_lines = [
+                "================================================================================",
+                "📊 [승무원 레벨업 몬테카를로 랜덤 성장 통계 보고서]",
+                "================================================================================",
+                f"• 대상 승무원: {result_crew.get('crewName')} [{result_crew.get('crewType')}] "
+                f"(ID: {result_crew.get('crewId')})",
+                f"• 목표 레벨: Lv.{result['target_level']} (총 {rolls}회 스탯 성장 롤)",
+                f"• 총 시뮬레이션 반복 횟수: {trials:,}회 | 1pt당 증가율: {rate:.1f}%",
+                f"• 설정 확률: ⚔️공격 {probability_atk:.1f}% | "
+                f"🛡️방어 {probability_def:.1f}% | 🏭생산/공업 {probability_prod:.1f}%",
+                "",
+                "--------------------------------------------------------------------------------",
+                "📈 [포인트 획득 분포 통계 (Percentiles & Deviation)]",
+                "--------------------------------------------------------------------------------",
+                "스탯 항목         평균(Mean)    표준편차(σ)   하위10%  하위25%  중앙값  상위25%  상위10%",
+                f"⚔️ 공격력 포인트   {average_attack:6.2f} pt   ±{std_attack:5.2f} pt"
+                f"   {percentile(sorted_attack, .10):4d}    {percentile(sorted_attack, .25):4d}"
+                f"    {percentile(sorted_attack, .50):4d}    {percentile(sorted_attack, .75):4d}"
+                f"    {percentile(sorted_attack, .90):4d}",
+                f"🛡️ 방어력 포인트   {average_defense:6.2f} pt   ±{std_defense:5.2f} pt"
+                f"   {percentile(sorted_defense, .10):4d}    {percentile(sorted_defense, .25):4d}"
+                f"    {percentile(sorted_defense, .50):4d}    {percentile(sorted_defense, .75):4d}"
+                f"    {percentile(sorted_defense, .90):4d}",
+                f"🏭 생산/공업 포인트 {average_production:6.2f} pt   ±{std_production:5.2f} pt"
+                f"   {percentile(sorted_production, .10):4d}    {percentile(sorted_production, .25):4d}"
+                f"    {percentile(sorted_production, .50):4d}    {percentile(sorted_production, .75):4d}"
+                f"    {percentile(sorted_production, .90):4d}",
+                "",
+                "--------------------------------------------------------------------------------",
+                "💡 [밸런스 기획자 코멘트 및 분석 요약]",
+                "--------------------------------------------------------------------------------",
+                f"• 공격력 포인트 기대값은 {rolls}포인트 중 {average_attack:.1f}pt"
+                f"({average_attack / rolls * 100:.1f}%)로 이론 확률({probability_atk:.1f}%)에 수렴합니다.",
+                f"• 상위 10% 공격 성장 결과는 {percentile(sorted_attack, .90)}pt이며 "
+                f"공격 계열 스탯이 +{percentile(sorted_attack, .90) * rate:.1f}% 증가합니다.",
+                f"• 하위 10% 공격 성장 결과는 {percentile(sorted_attack, .10)}pt이며 "
+                f"공격 계열 스탯이 +{percentile(sorted_attack, .10) * rate:.1f}% 증가합니다.",
+            ]
+
+            analytics_tab, rolls_tab = st.tabs(
+                [
+                    "📈 상세 통계 및 백분위 분포 분석 (Percentiles)",
+                    "📜 레벨업 주사위 판정 로그 / 회차별 결과",
+                ]
+            )
+            with analytics_tab:
+                st.code("\n".join(analytics_lines), language="text")
+            with rolls_tab:
                 if trials == 1:
-                    st.markdown("##### 📜 단일 회차 레벨업 주사위 판정 상세 로그")
-                    st.code("\n".join(s_res["single_logs"]), language="text")
+                    roll_lines = [
+                        f"🎲 [1회 단일 레벨업 주사위 판정 상세 진행 로그 "
+                        f"(Lv.1 ➔ Lv.{result['target_level']})]",
+                        "--------------------------------------------------------------------------------",
+                    ] + result["single_logs"]
                 else:
-                    st.markdown("##### 📈 스탯 포인트 획득 분포 히스토그램 (Plotly)")
-                    fig = go.Figure()
-                    fig.add_trace(go.Histogram(x=a_res, name="⚔️ 공격력 pt", marker_color="#f59e0b", opacity=0.75))
-                    fig.add_trace(go.Histogram(x=d_res, name="🛡️ 방어력 pt", marker_color="#3b82f6", opacity=0.75))
-                    fig.add_trace(go.Histogram(x=p_res, name="🏭 생산/공업 pt", marker_color="#10b981", opacity=0.75))
-                    fig.update_layout(
-                        barmode='overlay',
-                        template='plotly_dark',
-                        height=280,
-                        margin=dict(l=20, r=20, t=30, b=20),
-                        xaxis_title="획득 포인트 (pt)",
-                        yaxis_title="시뮬레이션 회차 빈도"
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("💡 좌측에서 파라미터를 설정하고 '몬테카를로 시뮬레이션 실행' 버튼을 누르면 통계 분석 및 히스토그램이 여기에 표시됩니다.")
+                    max_attack_index = attack_results.index(max_attack)
+                    max_defense_index = defense_results.index(max_defense)
+                    max_production_index = production_results.index(max_production)
+                    roll_lines = [
+                        f"📋 [총 {trials:,}회 시뮬레이션 중 상위/하위 대표 회차 샘플]",
+                        "--------------------------------------------------------------------------------",
+                        f"• 최고 공격력 회차: ⚔️공격 {max_attack}pt, "
+                        f"🛡️방어 {defense_results[max_attack_index]}pt, "
+                        f"🏭생산 {production_results[max_attack_index]}pt",
+                        f"• 최고 방어력 회차: ⚔️공격 {attack_results[max_defense_index]}pt, "
+                        f"🛡️방어 {max_defense}pt, "
+                        f"🏭생산 {production_results[max_defense_index]}pt",
+                        f"• 최고 생산력 회차: ⚔️공격 {attack_results[max_production_index]}pt, "
+                        f"🛡️방어 {defense_results[max_production_index]}pt, "
+                        f"🏭생산 {max_production}pt",
+                        "--------------------------------------------------------------------------------",
+                        "📌 [최근 30개 시뮬레이션 회차별 결과]",
+                    ]
+                    for index in range(min(30, trials)):
+                        roll_lines.append(
+                            f"  Trial #{index + 1:04d}: "
+                            f"⚔️공격 {attack_results[index]:2d}pt "
+                            f"({attack_results[index] / rolls * 100:4.1f}%) | "
+                            f"🛡️방어 {defense_results[index]:2d}pt "
+                            f"({defense_results[index] / rolls * 100:4.1f}%) | "
+                            f"🏭생산 {production_results[index]:2d}pt "
+                            f"({production_results[index] / rolls * 100:4.1f}%)"
+                        )
+                st.code("\n".join(roll_lines), language="text")
