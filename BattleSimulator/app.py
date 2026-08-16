@@ -370,8 +370,18 @@ with tab1:
             lvl_id = ba_rec.get("battleLevelId") if ba_rec else sel_ba
             if st.button(f"'{lvl_id}' 프리셋 불러오기", use_container_width=True):
                 spawn_recs = loader.get_sheet_data("SpawnData")
-                enemy_config.load_preset_by_level(lvl_id, spawn_recs)
-                st.success(f"{lvl_id} 프리셋 {len(enemy_config.monsters)}마리 로드 완료!")
+                enemy_config.clear()
+                enemy_config.selected_battle_area_id = lvl_id
+                count_loaded = 0
+                for sp in spawn_recs:
+                    target_lvl = sp.get("levelId")
+                    if target_lvl and (target_lvl == lvl_id or target_lvl == sel_ba):
+                        mid = sp.get("levelSpawnMonsterId")
+                        if mid and mid in monsters_map:
+                            cur = enemy_config.monster_counts.get(mid, 0)
+                            enemy_config.set_monster_count(mid, cur + 1)
+                            count_loaded += 1
+                st.success(f"{lvl_id} 프리셋 {count_loaded}마리 로드 완료!")
                 st.rerun()
 
         # Enemy Summary
@@ -389,10 +399,22 @@ with tab1:
             sel_m_id = st.selectbox("몬스터 추가", m_opts, format_func=lambda k: f"{monsters_map[k].get('monsterName')} (HP:{monsters_map[k].get('monsterHp')})")
         with col_m2:
             if st.button("몬스터 추가 (+)", use_container_width=True):
-                enemy_config.add_monster(sel_m_id, monsters_map[sel_m_id])
+                cur = enemy_config.monster_counts.get(sel_m_id, 0)
+                enemy_config.set_monster_count(sel_m_id, cur + 1)
                 st.rerun()
 
-        if enemy_config.monsters:
+        if enemy_config.monster_counts:
+            st.markdown("##### 📋 편성된 몬스터 목록")
+            for m_k, m_cnt in list(enemy_config.monster_counts.items()):
+                m_info = monsters_map.get(m_k, {})
+                c_m_lbl, c_m_del = st.columns([3, 1])
+                with c_m_lbl:
+                    st.caption(f"• {m_info.get('monsterName', m_k)}: {m_cnt}마리 (HP:{m_info.get('monsterHp', 0)})")
+                with c_m_del:
+                    if st.button("삭제", key=f"del_m_{m_k}"):
+                        enemy_config.set_monster_count(m_k, 0)
+                        st.rerun()
+
             if st.button("적 군단 전체 비우기", use_container_width=True):
                 enemy_config.clear()
                 st.rerun()
@@ -400,7 +422,7 @@ with tab1:
         st.markdown("---")
         # RUN SIMULATION BUTTON
         if st.button("⚡ 전투 시뮬레이션 실행 (Run Simulation)", type="primary", use_container_width=True):
-            if not enemy_config.monsters:
+            if not enemy_config.monster_counts:
                 st.error("전투를 실행할 적 몬스터가 없습니다!")
             else:
                 engine = BattleSimulationEngine(train_config, enemy_config, monsters_map)
