@@ -1068,26 +1068,11 @@ with tab_workshop:
             def coach_row_label(row_token):
                 row = parse_selected_coach_index(row_token, default=0)
                 if row == 0:
-                    locomotive_name = (
-                        train_config.locomotive.get("locomotiveName")
-                        if train_config.locomotive
-                        else "기관차 미선택"
-                    )
-                    return (
-                        f"🚂 [기관차] {locomotive_name} | "
-                        f"포탑 {len(train_config.locomotive_turrets)}/2 | 승무원 불가"
-                    )
+                    # Keep labels stable. Dynamic text here makes Streamlit treat
+                    # the options as a new list and reset selection to row 0.
+                    return "🚂 [기관차] 파츠 / 자체 포탑 설정"
                 selected_slot = train_config.coaches[row - 1]
-                crew_name = (
-                    selected_slot.crew.get("crewName")
-                    if selected_slot.crew
-                    else "승무원 미배치"
-                )
-                return (
-                    f"🚃 [{selected_slot.index}번 칸] {selected_slot.get_name()} | "
-                    f"Def:{selected_slot.get_total_coach_def():.1f} | "
-                    f"포탑 {len(selected_slot.turrets)}/4 | {crew_name}"
-                )
+                return f"🚃 [{selected_slot.index}번 칸] {selected_slot.get_name()}"
 
             if (
                 "coach_row_selector" not in st.session_state
