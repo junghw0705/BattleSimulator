@@ -4,6 +4,7 @@ import io
 import math
 import os
 import random
+import re
 import sys
 import zipfile
 
@@ -35,28 +36,29 @@ st.markdown(
     """
 <style>
     :root {
-        --bg: #0b0f19;
-        --panel: #0f172a;
-        --panel-2: #1e293b;
-        --line: #334155;
-        --muted: #94a3b8;
-        --text: #f1f5f9;
-        --indigo: #6366f1;
-        --green: #10b981;
-        --cyan: #06b6d4;
-        --amber: #f59e0b;
-        --red: #ef4444;
+        --bg: #07101f;
+        --panel: #101c30;
+        --panel-2: #1b2b46;
+        --panel-3: #243a5d;
+        --line: #425d82;
+        --muted: #bdcbe0;
+        --text: #f8fafc;
+        --indigo: #7c83ff;
+        --green: #22c98b;
+        --cyan: #22c7e5;
+        --amber: #f8b84e;
+        --red: #fb7185;
     }
 
     .stApp {
         background: var(--bg);
         color: var(--text);
         font-family: "Segoe UI", "Malgun Gothic", sans-serif;
-        font-size: 12px;
+        font-size: 13px;
     }
     .block-container {
         max-width: none;
-        padding: .35rem .45rem 1rem .45rem;
+        padding: .65rem .85rem 1.4rem .85rem;
     }
     header[data-testid="stHeader"] {
         height: 0;
@@ -65,186 +67,238 @@ st.markdown(
     #MainMenu, footer { visibility: hidden; }
 
     .app-title {
-        color: #818cf8;
-        font-size: 14px;
-        font-weight: 800;
-        line-height: 2.35rem;
-        padding-left: .15rem;
+        color: #b8c0ff;
+        font-size: 18px;
+        font-weight: 900;
+        letter-spacing: .2px;
+        line-height: 2.65rem;
+        padding-left: .25rem;
         white-space: nowrap;
+        text-shadow: 0 0 18px rgba(124, 131, 255, .25);
     }
     .group-title {
-        color: #818cf8;
-        background: var(--panel-2);
-        display: inline-block;
-        border-radius: 3px;
-        padding: 2px 6px;
-        font-size: 11px;
-        font-weight: 800;
-        margin-bottom: 6px;
+        color: #d5d9ff;
+        background: linear-gradient(90deg, var(--panel-3), var(--panel-2));
+        display: block;
+        border: 1px solid var(--line);
+        border-left: 4px solid var(--indigo);
+        border-radius: 5px;
+        padding: 6px 9px;
+        font-size: 13px;
+        font-weight: 900;
+        margin-bottom: 9px;
     }
     .section-caption {
         color: var(--muted);
-        font-size: 11px;
-        font-weight: 700;
-        margin-bottom: 5px;
+        font-size: 12px;
+        font-weight: 750;
+        line-height: 1.45;
+        margin-bottom: 7px;
     }
     .selected-title {
-        color: var(--green);
-        font-size: 12px;
-        font-weight: 800;
-        margin: 2px 0 6px 0;
+        color: #55e6ad;
+        font-size: 13.5px;
+        font-weight: 900;
+        line-height: 1.45;
+        margin: 3px 0 8px 0;
     }
     .hint {
         color: var(--muted);
-        font-size: 10.5px;
+        font-size: 11.5px;
+        line-height: 1.45;
     }
     .mono-box {
-        background: var(--bg);
+        background: #091426;
         border: 1px solid var(--line);
-        border-radius: 4px;
-        color: #e2e8f0;
+        border-radius: 6px;
+        color: #edf4ff;
         font-family: Consolas, "Malgun Gothic", monospace;
-        font-size: 10.5px;
-        line-height: 1.45;
-        padding: 7px 8px;
+        font-size: 11.5px;
+        line-height: 1.55;
+        padding: 9px 10px;
         white-space: pre-wrap;
     }
     .stat-grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 4px;
-        margin-bottom: 6px;
+        gap: 7px;
+        margin-bottom: 9px;
     }
     .stat-card {
-        background: var(--panel-2);
+        background: linear-gradient(145deg, var(--panel-2), #15243b);
         border: 1px solid var(--line);
-        border-radius: 6px;
-        min-height: 48px;
-        padding: 5px 7px;
+        border-radius: 7px;
+        min-height: 60px;
+        padding: 8px 9px;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
     }
     .stat-label {
         color: var(--muted);
-        font-size: 9.5px;
-        font-weight: 700;
+        font-size: 11px;
+        font-weight: 750;
+        line-height: 1.3;
     }
     .stat-value {
         color: #f8fafc;
-        font-size: 12.5px;
-        font-weight: 800;
-        margin-top: 2px;
+        font-size: 14px;
+        font-weight: 900;
+        line-height: 1.3;
+        margin-top: 4px;
     }
     .enemy-summary {
-        background: var(--panel-2);
-        border: 1px solid #7f1d1d;
-        border-radius: 6px;
-        padding: 7px;
-        margin: 5px 0;
-        color: #fecaca;
-        font-weight: 700;
-        font-size: 11px;
+        background: #351a2a;
+        border: 1px solid #be4861;
+        border-radius: 7px;
+        padding: 10px;
+        margin: 8px 0;
+        color: #ffe0e6;
+        font-weight: 800;
+        font-size: 12.5px;
     }
     .result-box {
-        background: #052e2b;
-        border: 1px solid var(--green);
-        border-radius: 6px;
-        padding: 8px;
-        margin-top: 6px;
+        background: #0c342d;
+        border: 1px solid #35d6a0;
+        border-radius: 7px;
+        padding: 10px;
+        margin-top: 9px;
     }
-    .danger-text { color: #f87171; }
-    .success-text { color: #34d399; }
-    .cyan-text { color: #38bdf8; }
-    .amber-text { color: #fbbf24; }
+    .danger-text { color: #ff8da0; }
+    .success-text { color: #55e6ad; }
+    .cyan-text { color: #5eddf3; }
+    .amber-text { color: #ffd078; }
 
     div[data-testid="stVerticalBlockBorderWrapper"] {
         background: var(--panel);
-        border-color: #1e293b !important;
-        border-radius: 6px;
+        border-color: var(--line) !important;
+        border-radius: 8px;
+        box-shadow: 0 5px 18px rgba(0, 0, 0, .14);
     }
     div[data-testid="stMetric"] {
-        background: var(--panel-2);
+        background: linear-gradient(145deg, var(--panel-2), #15243b);
         border: 1px solid var(--line);
-        border-radius: 6px;
-        padding: 6px 8px;
+        border-radius: 7px;
+        padding: 9px 11px;
     }
     div[data-testid="stMetricLabel"] p {
         color: var(--muted);
-        font-size: 10px;
-        font-weight: 700;
+        font-size: 11.5px;
+        font-weight: 800;
     }
     div[data-testid="stMetricValue"] {
-        font-size: 15px;
+        color: white;
+        font-size: 18px;
+        font-weight: 900;
     }
     div[data-testid="stMetricDelta"] {
-        font-size: 9.5px;
+        font-size: 11px;
     }
 
     .stTabs [data-baseweb="tab-list"] {
-        gap: 3px;
-        margin-bottom: 3px;
+        gap: 5px;
+        margin-bottom: 6px;
+        border-bottom: 1px solid var(--line);
     }
     .stTabs [data-baseweb="tab"] {
-        height: 34px;
-        padding: 6px 14px;
+        height: 40px;
+        padding: 8px 16px;
         background: var(--panel-2);
-        border-radius: 5px 5px 0 0;
+        border: 1px solid var(--line);
+        border-bottom: none;
+        border-radius: 6px 6px 0 0;
         color: var(--muted);
-        font-size: 11px;
-        font-weight: 800;
+        font-size: 12.5px;
+        font-weight: 850;
     }
     .stTabs [aria-selected="true"] {
-        background: var(--indigo) !important;
+        background: #5962dd !important;
         color: white !important;
+        box-shadow: 0 -2px 10px rgba(124, 131, 255, .22);
     }
 
     .stButton > button, .stDownloadButton > button {
-        min-height: 28px;
-        padding: 3px 8px;
-        border: 0;
-        border-radius: 4px;
-        background: #4f46e5;
+        min-height: 34px;
+        padding: 5px 10px;
+        border: 1px solid #8288ff;
+        border-radius: 6px;
+        background: #4f57c8;
         color: white;
-        font-size: 10.5px;
-        font-weight: 800;
+        font-size: 11.5px;
+        font-weight: 850;
+        line-height: 1.3;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, .18);
     }
     .stButton > button:hover, .stDownloadButton > button:hover {
-        border: 0;
-        background: #6366f1;
+        border: 1px solid #b7bbff;
+        background: #6870e6;
         color: white;
     }
     .stButton > button[kind="primary"] {
-        background: #059669;
+        background: #087f5b;
+        border-color: #35d6a0;
     }
     .stButton > button[kind="primary"]:hover {
-        background: #10b981;
+        background: #0a9a6e;
     }
     div[data-testid="stSelectbox"] label,
     div[data-testid="stNumberInput"] label,
     div[data-testid="stTextInput"] label,
     div[data-testid="stSlider"] label {
-        color: #cbd5e1;
-        font-size: 10.5px;
-        font-weight: 700;
+        color: #dce7f8;
+        font-size: 12px;
+        font-weight: 800;
     }
     div[data-baseweb="select"] > div,
     div[data-testid="stNumberInput"] input,
     div[data-testid="stTextInput"] input {
-        min-height: 30px;
-        background: var(--panel-2);
+        min-height: 36px;
+        background: #172a46;
+        border: 1px solid #56749c;
+        border-radius: 6px;
+        color: #ffffff;
+        font-size: 12px;
+        font-weight: 650;
+    }
+    div[data-baseweb="select"] span {
+        color: #ffffff !important;
+    }
+    ul[role="listbox"] {
+        background: #14243d !important;
+        border: 1px solid var(--line);
+    }
+    li[role="option"] {
+        color: #f8fafc !important;
+        font-size: 12px;
+    }
+    li[role="option"]:hover {
+        background: #29446d !important;
+    }
+    div[data-testid="stNumberInput"] button {
+        background: var(--panel-3);
+        color: white;
         border-color: var(--line);
-        color: #f8fafc;
-        font-size: 10.5px;
     }
     div[data-testid="stDataFrame"] {
-        border: 1px solid #1e293b;
-        border-radius: 4px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        overflow: hidden;
+    }
+    div[data-testid="stCaptionContainer"] p {
+        color: #b8c8de;
+        font-size: 11.5px;
+        line-height: 1.45;
+    }
+    .stMarkdown p, .stMarkdown li {
+        color: #e5edf8;
+        line-height: 1.5;
     }
     .stAlert {
-        padding: 7px 9px;
-        font-size: 10.5px;
+        padding: 9px 11px;
+        font-size: 12px;
+        border: 1px solid var(--line);
     }
     hr {
-        border-color: #1e293b;
-        margin: 7px 0;
+        border-color: var(--line);
+        margin: 10px 0;
     }
 </style>
 """,
@@ -338,10 +392,48 @@ def build_data_maps(loader):
     }
 
 
+def parse_selected_coach_index(value, default=0):
+    """Convert current and legacy Streamlit selectbox values into a coach index."""
+    fallback = default if default is None else int(default)
+    if isinstance(value, bool):
+        return fallback
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"locomotive", "loco", "기관차", "0"}:
+            return 0
+        match = re.fullmatch(r"(?:coach[\s:_-]*)?(\d+)", normalized)
+        if match:
+            return int(match.group(1))
+    return fallback
+
+
+def coach_selector_token(index):
+    return "locomotive" if int(index) <= 0 else f"coach:{int(index)}"
+
+
 def normalize_selected_index():
     max_index = len(st.session_state.train_config.coaches)
+    pending_token = st.session_state.pop("pending_coach_selection", None)
+    if pending_token is not None:
+        parsed_index = parse_selected_coach_index(pending_token, default=0)
+        st.session_state.coach_row_selector = coach_selector_token(parsed_index)
+    else:
+        selector_index = parse_selected_coach_index(
+            st.session_state.get("coach_row_selector"), default=None
+        )
+        parsed_index = (
+            selector_index
+            if selector_index is not None
+            else parse_selected_coach_index(
+                st.session_state.get("selected_coach_idx", 0), default=0
+            )
+        )
     st.session_state.selected_coach_idx = max(
-        0, min(int(st.session_state.selected_coach_idx), max_index)
+        0, min(parsed_index, max_index)
     )
 
 
@@ -351,8 +443,12 @@ def sync_part(attr_name, widget_key, data_map):
 
 
 def sync_selected_row():
-    st.session_state.selected_coach_idx = int(
-        st.session_state.get("coach_row_selector", 0)
+    selected_index = parse_selected_coach_index(
+        st.session_state.get("coach_row_selector"), default=0
+    )
+    max_index = len(st.session_state.train_config.coaches)
+    st.session_state.selected_coach_idx = max(
+        0, min(selected_index, max_index)
     )
 
 
@@ -639,6 +735,7 @@ with tab_workshop:
                 use_container_width=True,
             ):
                 st.session_state.selected_coach_idx = 0
+                st.session_state.coach_row_selector = coach_selector_token(0)
                 st.rerun()
 
         for coach_index, slot in enumerate(train_config.coaches, start=1):
@@ -664,6 +761,9 @@ with tab_workshop:
                     use_container_width=True,
                 ):
                     st.session_state.selected_coach_idx = coach_index
+                    st.session_state.coach_row_selector = coach_selector_token(
+                        coach_index
+                    )
                     st.rerun()
 
     left_column, middle_column, right_column = st.columns([3, 4, 4], gap="small")
@@ -949,8 +1049,10 @@ with tab_workshop:
                             )
                         elif selected_couch_id:
                             train_config.add_coach(couches_map[selected_couch_id])
-                            st.session_state.selected_coach_idx = len(
-                                train_config.coaches
+                            new_coach_index = len(train_config.coaches)
+                            st.session_state.selected_coach_idx = new_coach_index
+                            st.session_state.coach_row_selector = (
+                                coach_selector_token(new_coach_index)
                             )
                             st.rerun()
 
@@ -958,9 +1060,13 @@ with tab_workshop:
                 '<div class="section-caption">📋 열차 칸 목록 (클릭하여 장착/배치)</div>',
                 unsafe_allow_html=True,
             )
-            coach_rows = [0] + list(range(1, len(train_config.coaches) + 1))
+            coach_rows = ["locomotive"] + [
+                coach_selector_token(index)
+                for index in range(1, len(train_config.coaches) + 1)
+            ]
 
-            def coach_row_label(row):
+            def coach_row_label(row_token):
+                row = parse_selected_coach_index(row_token, default=0)
                 if row == 0:
                     locomotive_name = (
                         train_config.locomotive.get("locomotiveName")
@@ -987,24 +1093,24 @@ with tab_workshop:
                 "coach_row_selector" not in st.session_state
                 or st.session_state.coach_row_selector not in coach_rows
             ):
-                st.session_state.coach_row_selector = (
-                    st.session_state.selected_coach_idx
-                )
-            elif (
-                st.session_state.coach_row_selector
-                != st.session_state.selected_coach_idx
-            ):
-                st.session_state.coach_row_selector = (
+                st.session_state.coach_row_selector = coach_selector_token(
                     st.session_state.selected_coach_idx
                 )
 
-            st.selectbox(
+            selected_row_token = st.selectbox(
                 "열차 칸 목록",
                 coach_rows,
                 key="coach_row_selector",
                 format_func=coach_row_label,
                 on_change=sync_selected_row,
                 label_visibility="collapsed",
+            )
+            selected_index = parse_selected_coach_index(
+                selected_row_token,
+                default=st.session_state.selected_coach_idx,
+            )
+            st.session_state.selected_coach_idx = max(
+                0, min(selected_index, len(train_config.coaches))
             )
             selected_index = st.session_state.selected_coach_idx
 
@@ -1015,8 +1121,11 @@ with tab_workshop:
                     use_container_width=True,
                 ):
                     train_config.remove_coach(selected_index - 1)
-                    st.session_state.selected_coach_idx = max(0, selected_index - 1)
-                    normalize_selected_index()
+                    target_index = max(0, selected_index - 1)
+                    st.session_state.selected_coach_idx = target_index
+                    st.session_state.pending_coach_selection = (
+                        coach_selector_token(target_index)
+                    )
                     st.rerun()
 
             if selected_index == 0:
@@ -2084,6 +2193,9 @@ with tab_crew:
                             sample_attack, sample_defense, sample_production
                         )
                     st.session_state.selected_coach_idx = matching_slots[0].index
+                    st.session_state.pending_coach_selection = (
+                        coach_selector_token(matching_slots[0].index)
+                    )
                     set_flash(
                         "success",
                         f"[{result['crew'].get('crewName')}] 승무원이 탑승한 "
