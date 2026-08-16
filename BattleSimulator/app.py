@@ -138,15 +138,19 @@ with tab1:
     b_col1, b_col2, b_col3, b_col4, b_col5 = st.columns(5)
     with b_col1:
         loco_name = train_config.locomotive.get("locomotiveName", "기관차 미선택") if train_config.locomotive else "미선택"
-        st.metric("🚂 기관차 (HP / Def)", f"{stats['locomotive_hp']} / {stats['locomotive_def']:.0f}", loco_name)
+        loco_hp = float(train_config.locomotive.get("locomotiveHp") or 0.0) if train_config.locomotive else 0.0
+        st.metric("🚂 기관차 (HP / Def)", f"{loco_hp:.0f} / {stats['locomotive_def']:.0f}", loco_name)
     with b_col2:
         st.metric("🚃 연결 객차 수", f"{stats['current_couches']} / {stats['max_couches']} 칸", f"엔진: {stats['horsepower']:.0f} HP")
     with b_col3:
-        st.metric("🛡️ 총 보호막 (Shield)", f"{stats['total_shield']:.0f}", f"제네레이터: {stats['shield']:.0f}")
+        gen_shield = float(train_config.generator.get("generatorShieldUp") or 0.0) if train_config.generator else 0.0
+        st.metric("🛡️ 총 보호막 (Shield)", f"{stats['total_shield']:.0f}", f"제네레이터: +{gen_shield:.0f}")
     with b_col4:
         st.metric("⚔️ L-대지 / F-대공 위력", f"+{stats['crew_landpower']:.1f} / +{stats['crew_flypower']:.1f}", "승무원 보너스")
     with b_col5:
-        st.metric("🏭 생산력 / 공업력", f"{stats['product']:.1f} / {stats['industry']:.1f}", "열차 총 생산")
+        crew_prod = sum(c.get_effective_crew_stats()["product"] for c in train_config.coaches)
+        crew_ind = sum(c.get_effective_crew_stats()["industry"] for c in train_config.coaches)
+        st.metric("🏭 생산력 / 공업력", f"{crew_prod:.1f} / {crew_ind:.1f}", "열차 총 생산")
 
     st.markdown("---")
 
