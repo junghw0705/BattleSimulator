@@ -8,6 +8,7 @@ import re
 import sys
 import zipfile
 
+import altair as alt
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -394,6 +395,54 @@ def fmt_num(value, digits=0):
         return f"{number:,.{digits}f}"
     except (TypeError, ValueError):
         return str(value)
+
+
+def style_chart(chart, height=340):
+    """Apply one readable dark theme to every simulator chart."""
+    return (
+        chart.properties(height=height)
+        .configure(background="#111827")
+        .configure_view(stroke="#2e3b52", strokeWidth=1)
+        .configure_axis(
+            labelColor="#cbd5e1",
+            labelFont="Malgun Gothic",
+            labelFontSize=12,
+            titleColor="#f8fafc",
+            titleFont="Malgun Gothic",
+            titleFontSize=13,
+            titlePadding=12,
+            gridColor="#2e3b52",
+            gridOpacity=0.65,
+            domainColor="#64748b",
+            tickColor="#64748b",
+        )
+        .configure_legend(
+            labelColor="#e2e8f0",
+            labelFont="Malgun Gothic",
+            labelFontSize=12,
+            titleColor="#f8fafc",
+            titleFont="Malgun Gothic",
+            titleFontSize=12,
+            orient="top",
+            direction="horizontal",
+            padding=6,
+        )
+        .configure_title(
+            color="#f8fafc",
+            font="Malgun Gothic",
+            fontSize=15,
+            fontWeight="bold",
+            anchor="start",
+            offset=12,
+        )
+    )
+
+
+def show_chart(chart, height=340):
+    st.altair_chart(
+        style_chart(chart, height=height),
+        use_container_width=True,
+    )
 
 
 def stat_cards(cards):
@@ -2046,22 +2095,188 @@ with tab_workshop:
                 st.info("그래프로 표시할 열차 칸 데이터가 없습니다.")
             else:
                 car_chart = car_frame[
-                    ["칸", "현재 HP", "손실 HP"]
+                    ["칸", "현재 HP", "손실 HP", "최대 HP", "생존율 (%)", "상태"]
                 ].copy()
-                st.bar_chart(
-                    car_chart.set_index("칸")[["현재 HP", "손실 HP"]],
-                    height=320,
+                car_chart["표시값"] = car_chart.apply(
+                    lambda row: (
+                        f"{row['현재 HP']:,.0f} / {row['최대 HP']:,.0f} HP"
+                        f"  ({row['생존율 (%)']:.1f}%)"
+                    ),
+                    axis=1,
+                )
+                car_chart["현재 HP 값"] = car_chart["현재 HP"]
+                car_chart["손실 HP 값"] = car_chart["손실 HP"]
+                car_long = car_chart.melt(
+                    id_vars=[
+                        "칸",
+                        "현재 HP 값",
+                        "손실 HP 값",
+                        "최대 HP",
+                        "생존율 (%)",
+                        "상태",
+                        "표시값",
+                    ],
+                    value_vars=["현재 HP", "손실 HP"],
+                    var_name="HP 구분",
+                    value_name="HP",
+                )
+                hp_bars = (
+                    alt.Chart(car_long)
+                    .mark_bar()
+                    .encode(
+                        x=alt.X(
+                            "HP:Q",
+                            stack="zero",
+                            title="HP",
+                            axis=alt.Axis(format=",.0f"),
+                        ),
+                        y=alt.Y(
+                            "칸:N",
+                            title=None,
+                            sort=car_frame["칸"].tolist(),
+                            axis=alt.Axis(labelLimit=360),
+                        ),
+                        color=alt.Color(
+                            "HP 구분:N",
+                            title=None,
+                            scale=alt.Scale(
+                                domain=["현재 HP", "손실 HP"],
+                                range=["#10b981", "#ef4444"],
+                            ),
+                        ),
+                        order=alt.Order("HP 구분:N", sort="ascending"),
+                        tooltip=[
+                            alt.Tooltip("칸:N", title="열차 칸"),
+                            alt.Tooltip("상태:N", title="상태"),
+                            alt.Tooltip(
+                                "현재 HP 값:Q", title="현재 HP", format=",.1f"
+                            ),
+                            alt.Tooltip(
+                                "손실 HP 값:Q", title="손실 HP", format=",.1f"
+                            ),
+                            alt.Tooltip("최대 HP:Q", title="최대 HP", format=",.1f"),
+                            alt.Tooltip(
+                                "생존율 (%):Q", title="생존율", format=".1f"
+                            ),
+                        ],
+                    )
+                )
+                hp_labels = (
+                    alt.Chart(car_chart)
+                    .mark_text(
+                        align="right",
+                        baseline="middle",
+                        dx=-8,
+                        color="#ffffff",
+                        fontSize=12,
+                        fontWeight="bold",
+                    )
+                    .encode(
+                        x=alt.X("최대 HP:Q"),
+                        y=alt.Y(
+                            "칸:N",
+                            sort=car_frame["칸"].tolist(),
+                        ),
+                        text=alt.Text("표시값:N"),
+                    )
+                )
+                show_chart(
+                    (hp_bars + hp_labels).properties(
+                        title="현재 HP(초록)와 손실 HP(빨강)의 합계 = 최대 HP"
+                    ),
+                    height=max(250, 54 + len(car_frame) * 45),
+                )
+                st.caption(
+                    "막대 안 숫자는 현재 HP / 최대 HP와 생존율입니다. "
+                    "마우스를 올리면 현재·손실·최대 HP를 각각 확인할 수 있습니다."
                 )
         elif battle_chart_choice == "🔫 포탑별 누적 피해":
             if turret_frame.empty:
                 st.info("그래프로 표시할 포탑 데이터가 없습니다.")
             else:
                 turret_chart = turret_frame[
-                    ["포탑", "누적 피해", "처치"]
+                    [
+                        "장착 칸",
+                        "포탑",
+                        "속성",
+                        "최종 위력",
+                        "누적 피해",
+                        "피해 비중 (%)",
+                        "처치",
+                        "상태",
+                    ]
                 ].copy()
-                st.bar_chart(
-                    turret_chart.set_index("포탑")[["누적 피해"]],
-                    height=320,
+                turret_chart["포탑 표시"] = (
+                    turret_chart["장착 칸"] + " · " + turret_chart["포탑"]
+                )
+                turret_chart["피해 표시"] = turret_chart["누적 피해"].map(
+                    lambda value: f"{value:,.1f}"
+                )
+                turret_chart = turret_chart.sort_values(
+                    ["누적 피해", "포탑 표시"],
+                    ascending=[False, True],
+                )
+                turret_order = turret_chart["포탑 표시"].tolist()
+                turret_bars = (
+                    alt.Chart(turret_chart)
+                    .mark_bar(cornerRadiusEnd=4, color="#3b82f6")
+                    .encode(
+                        x=alt.X(
+                            "누적 피해:Q",
+                            title="누적 피해",
+                            axis=alt.Axis(format=",.0f"),
+                        ),
+                        y=alt.Y(
+                            "포탑 표시:N",
+                            title=None,
+                            sort=turret_order,
+                            axis=alt.Axis(labelLimit=390),
+                        ),
+                        tooltip=[
+                            alt.Tooltip("장착 칸:N", title="장착 칸"),
+                            alt.Tooltip("포탑:N", title="포탑"),
+                            alt.Tooltip("속성:N", title="속성"),
+                            alt.Tooltip(
+                                "최종 위력:Q", title="최종 위력", format=",.1f"
+                            ),
+                            alt.Tooltip(
+                                "누적 피해:Q", title="누적 피해", format=",.1f"
+                            ),
+                            alt.Tooltip(
+                                "피해 비중 (%):Q",
+                                title="전체 피해 비중",
+                                format=".1f",
+                            ),
+                            alt.Tooltip("처치:Q", title="처치", format=",d"),
+                            alt.Tooltip("상태:N", title="상태"),
+                        ],
+                    )
+                )
+                turret_labels = (
+                    alt.Chart(turret_chart)
+                    .mark_text(
+                        align="right",
+                        baseline="middle",
+                        dx=-7,
+                        color="#ffffff",
+                        fontSize=12,
+                        fontWeight="bold",
+                    )
+                    .encode(
+                        x=alt.X("누적 피해:Q"),
+                        y=alt.Y("포탑 표시:N", sort=turret_order),
+                        text=alt.Text("피해 표시:N"),
+                    )
+                )
+                show_chart(
+                    (turret_bars + turret_labels).properties(
+                        title="포탑별 누적 피해 — 피해량이 큰 순서"
+                    ),
+                    height=max(260, 60 + len(turret_chart) * 42),
+                )
+                st.caption(
+                    "같은 이름의 포탑도 장착 칸을 함께 표시해 서로 구분했습니다. "
+                    "막대 숫자는 실제 누적 피해입니다."
                 )
         else:
             if event_frame.empty:
@@ -2069,17 +2284,125 @@ with tab_workshop:
             else:
                 event_count_chart, event_damage_chart = st.columns(2)
                 with event_count_chart:
-                    st.caption("이벤트 발생 횟수")
-                    st.bar_chart(
-                        event_frame.set_index("이벤트")[["횟수"]],
-                        height=290,
+                    count_data = event_frame.sort_values(
+                        ["횟수", "이벤트"], ascending=[False, True]
+                    ).copy()
+                    count_data["표시값"] = count_data["횟수"].map(
+                        lambda value: f"{int(value):,}회"
+                    )
+                    count_order = count_data["이벤트"].tolist()
+                    count_bars = (
+                        alt.Chart(count_data)
+                        .mark_bar(cornerRadiusEnd=4, color="#8b5cf6")
+                        .encode(
+                            x=alt.X(
+                                "횟수:Q",
+                                title="발생 횟수",
+                                axis=alt.Axis(format=",d"),
+                            ),
+                            y=alt.Y(
+                                "이벤트:N",
+                                title=None,
+                                sort=count_order,
+                                axis=alt.Axis(labelLimit=180),
+                            ),
+                            tooltip=[
+                                alt.Tooltip("이벤트:N", title="이벤트"),
+                                alt.Tooltip("횟수:Q", title="발생 횟수", format=",d"),
+                                alt.Tooltip(
+                                    "비중 (%):Q", title="로그 비중", format=".1f"
+                                ),
+                                alt.Tooltip(
+                                    "평균 피해:Q", title="평균 피해", format=",.2f"
+                                ),
+                            ],
+                        )
+                    )
+                    count_labels = (
+                        alt.Chart(count_data)
+                        .mark_text(
+                            align="right",
+                            baseline="middle",
+                            dx=-6,
+                            color="#ffffff",
+                            fontSize=11,
+                            fontWeight="bold",
+                        )
+                        .encode(
+                            x=alt.X("횟수:Q"),
+                            y=alt.Y("이벤트:N", sort=count_order),
+                            text=alt.Text("표시값:N"),
+                        )
+                    )
+                    show_chart(
+                        (count_bars + count_labels).properties(
+                            title="이벤트 발생 횟수"
+                        ),
+                        height=max(280, 65 + len(count_data) * 34),
                     )
                 with event_damage_chart:
-                    st.caption("이벤트별 총 피해량")
-                    st.bar_chart(
-                        event_frame.set_index("이벤트")[["총 피해"]],
-                        height=290,
+                    damage_data = event_frame.sort_values(
+                        ["총 피해", "이벤트"], ascending=[False, True]
+                    ).copy()
+                    damage_data["표시값"] = damage_data["총 피해"].map(
+                        lambda value: f"{value:,.1f}"
                     )
+                    damage_order = damage_data["이벤트"].tolist()
+                    damage_bars = (
+                        alt.Chart(damage_data)
+                        .mark_bar(cornerRadiusEnd=4, color="#f59e0b")
+                        .encode(
+                            x=alt.X(
+                                "총 피해:Q",
+                                title="총 피해",
+                                axis=alt.Axis(format=",.0f"),
+                            ),
+                            y=alt.Y(
+                                "이벤트:N",
+                                title=None,
+                                sort=damage_order,
+                                axis=alt.Axis(labelLimit=180),
+                            ),
+                            tooltip=[
+                                alt.Tooltip("이벤트:N", title="이벤트"),
+                                alt.Tooltip(
+                                    "총 피해:Q", title="총 피해", format=",.1f"
+                                ),
+                                alt.Tooltip(
+                                    "평균 피해:Q", title="평균 피해", format=",.2f"
+                                ),
+                                alt.Tooltip(
+                                    "최대 피해:Q", title="최대 피해", format=",.1f"
+                                ),
+                                alt.Tooltip("횟수:Q", title="발생 횟수", format=",d"),
+                            ],
+                        )
+                    )
+                    damage_labels = (
+                        alt.Chart(damage_data)
+                        .mark_text(
+                            align="right",
+                            baseline="middle",
+                            dx=-6,
+                            color="#ffffff",
+                            fontSize=11,
+                            fontWeight="bold",
+                        )
+                        .encode(
+                            x=alt.X("총 피해:Q"),
+                            y=alt.Y("이벤트:N", sort=damage_order),
+                            text=alt.Text("표시값:N"),
+                        )
+                    )
+                    show_chart(
+                        (damage_bars + damage_labels).properties(
+                            title="이벤트별 실제 총 피해"
+                        ),
+                        height=max(280, 65 + len(damage_data) * 34),
+                    )
+                st.caption(
+                    "왼쪽은 로그에 기록된 발생 횟수, 오른쪽은 해당 이벤트가 만든 실제 피해 합계입니다."
+                )
 
         car_stats_tab, turret_stats_tab, event_stats_tab = st.tabs(
             [
@@ -2933,43 +3256,164 @@ with tab_crew:
                 label_visibility="collapsed",
             )
             if crew_chart_choice == "포인트 획득 분포":
-                point_distribution_chart = pd.concat(
-                    [
-                        pd.Series(attack_results)
-                        .value_counts()
-                        .rename("공격력"),
-                        pd.Series(defense_results)
-                        .value_counts()
-                        .rename("방어력"),
-                        pd.Series(production_results)
-                        .value_counts()
-                        .rename("생산/공업"),
-                    ],
-                    axis=1,
-                ).fillna(0)
-                point_distribution_chart = point_distribution_chart.sort_index()
-                point_distribution_chart.index.name = "획득 포인트"
-                st.bar_chart(
-                    point_distribution_chart.astype(int),
-                    height=340,
+                distribution_rows = []
+                for stat_name, values in [
+                    ("공격력", attack_results),
+                    ("방어력", defense_results),
+                    ("생산/공업", production_results),
+                ]:
+                    counts = pd.Series(values).value_counts().sort_index()
+                    distribution_rows.extend(
+                        {
+                            "성장 스탯": stat_name,
+                            "획득 포인트": int(point),
+                            "시뮬레이션 횟수": int(count),
+                            "결과 비중 (%)": float(count) / trials * 100,
+                        }
+                        for point, count in counts.items()
+                    )
+                point_distribution_chart = pd.DataFrame(distribution_rows)
+                distribution_line = (
+                    alt.Chart(point_distribution_chart)
+                    .mark_line(point=alt.OverlayMarkDef(size=45), strokeWidth=2.5)
+                    .encode(
+                        x=alt.X(
+                            "획득 포인트:Q",
+                            title="획득 포인트 (pt)",
+                            axis=alt.Axis(format="d", tickMinStep=1),
+                        ),
+                        y=alt.Y(
+                            "결과 비중 (%):Q",
+                            title="전체 시뮬레이션 중 비중 (%)",
+                            axis=alt.Axis(format=".1f"),
+                        ),
+                        color=alt.Color(
+                            "성장 스탯:N",
+                            title=None,
+                            scale=alt.Scale(
+                                domain=["공격력", "방어력", "생산/공업"],
+                                range=["#ef4444", "#3b82f6", "#f59e0b"],
+                            ),
+                        ),
+                        tooltip=[
+                            alt.Tooltip("성장 스탯:N", title="성장 스탯"),
+                            alt.Tooltip(
+                                "획득 포인트:Q", title="획득 포인트", format="d"
+                            ),
+                            alt.Tooltip(
+                                "시뮬레이션 횟수:Q",
+                                title="시뮬레이션 횟수",
+                                format=",d",
+                            ),
+                            alt.Tooltip(
+                                "결과 비중 (%):Q",
+                                title="결과 비중",
+                                format=".2f",
+                            ),
+                        ],
+                    )
+                )
+                show_chart(
+                    distribution_line.properties(
+                        title="획득 포인트별 발생 확률 분포"
+                    ),
+                    height=380,
+                )
+                st.caption(
+                    "세로축은 단순 횟수가 아니라 전체 시뮬레이션에서 해당 포인트가 나온 비율입니다. "
+                    "따라서 시뮬레이션 횟수를 바꿔도 분포를 같은 기준으로 비교할 수 있습니다."
                 )
             elif crew_chart_choice == "이론 기대값과 실제 평균":
                 expectation_chart = pd.DataFrame(
-                    {
-                        "이론 기대 포인트": [
-                            rolls * probability_atk / 100,
-                            rolls * probability_def / 100,
-                            rolls * probability_prod / 100,
-                        ],
-                        "실제 평균 포인트": [
-                            average_attack,
-                            average_defense,
-                            average_production,
-                        ],
-                    },
-                    index=["공격력", "방어력", "생산/공업"],
+                    [
+                        {
+                            "성장 스탯": stat_name,
+                            "구분": kind,
+                            "포인트": value,
+                        }
+                        for stat_name, theoretical, actual in [
+                            (
+                                "공격력",
+                                rolls * probability_atk / 100,
+                                average_attack,
+                            ),
+                            (
+                                "방어력",
+                                rolls * probability_def / 100,
+                                average_defense,
+                            ),
+                            (
+                                "생산/공업",
+                                rolls * probability_prod / 100,
+                                average_production,
+                            ),
+                        ]
+                        for kind, value in [
+                            ("이론 기대값", theoretical),
+                            ("실제 평균", actual),
+                        ]
+                    ]
                 )
-                st.bar_chart(expectation_chart, height=340)
+                expectation_chart["표시값"] = expectation_chart["포인트"].map(
+                    lambda value: f"{value:.2f}"
+                )
+                expectation_bars = (
+                    alt.Chart(expectation_chart)
+                    .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
+                    .encode(
+                        x=alt.X(
+                            "성장 스탯:N",
+                            title=None,
+                            sort=["공격력", "방어력", "생산/공업"],
+                        ),
+                        xOffset=alt.XOffset("구분:N"),
+                        y=alt.Y(
+                            "포인트:Q",
+                            title="평균 획득 포인트 (pt)",
+                            scale=alt.Scale(zero=True),
+                        ),
+                        color=alt.Color(
+                            "구분:N",
+                            title=None,
+                            scale=alt.Scale(
+                                domain=["이론 기대값", "실제 평균"],
+                                range=["#64748b", "#22d3ee"],
+                            ),
+                        ),
+                        tooltip=[
+                            alt.Tooltip("성장 스탯:N", title="성장 스탯"),
+                            alt.Tooltip("구분:N", title="구분"),
+                            alt.Tooltip("포인트:Q", title="포인트", format=".3f"),
+                        ],
+                    )
+                )
+                expectation_labels = (
+                    alt.Chart(expectation_chart)
+                    .mark_text(
+                        dy=-8,
+                        color="#f8fafc",
+                        fontSize=12,
+                        fontWeight="bold",
+                    )
+                    .encode(
+                        x=alt.X(
+                            "성장 스탯:N",
+                            sort=["공격력", "방어력", "생산/공업"],
+                        ),
+                        xOffset=alt.XOffset("구분:N"),
+                        y=alt.Y("포인트:Q"),
+                        text=alt.Text("표시값:N"),
+                    )
+                )
+                show_chart(
+                    (expectation_bars + expectation_labels).properties(
+                        title="설정 확률의 이론 기대값과 시뮬레이션 실제 평균 비교"
+                    ),
+                    height=360,
+                )
+                st.caption(
+                    "회색은 설정 확률로 계산한 이론값, 청록색은 반복 시뮬레이션에서 측정한 실제 평균입니다."
+                )
             else:
                 final_stat_chart = pd.DataFrame(
                     [
@@ -2990,8 +3434,111 @@ with tab_crew:
                             max_stat,
                         ) in stat_rows
                     ]
-                ).set_index("스탯")
-                st.bar_chart(final_stat_chart, height=360)
+                )
+                final_stat_chart["평균 표시"] = final_stat_chart["평균"].map(
+                    lambda value: f"평균 {value:,.2f}"
+                )
+                final_order = final_stat_chart["스탯"].tolist()
+                final_range = (
+                    alt.Chart(final_stat_chart)
+                    .mark_rule(
+                        color="#64748b",
+                        strokeWidth=7,
+                        strokeCap="round",
+                    )
+                    .encode(
+                        x=alt.X(
+                            "최저:Q",
+                            title="최종 스탯",
+                            scale=alt.Scale(zero=False),
+                        ),
+                        x2="최고:Q",
+                        y=alt.Y(
+                            "스탯:N",
+                            title=None,
+                            sort=final_order,
+                            axis=alt.Axis(labelLimit=300),
+                        ),
+                        tooltip=[
+                            alt.Tooltip("스탯:N", title="스탯"),
+                            alt.Tooltip("기본:Q", title="기본값", format=",.2f"),
+                            alt.Tooltip("최저:Q", title="최저", format=",.2f"),
+                            alt.Tooltip("평균:Q", title="평균", format=",.2f"),
+                            alt.Tooltip("최고:Q", title="최고", format=",.2f"),
+                        ],
+                    )
+                )
+                base_points = (
+                    alt.Chart(final_stat_chart)
+                    .mark_point(
+                        filled=True,
+                        shape="diamond",
+                        size=120,
+                        color="#f59e0b",
+                        stroke="#111827",
+                        strokeWidth=1,
+                    )
+                    .encode(
+                        x=alt.X("기본:Q"),
+                        y=alt.Y("스탯:N", sort=final_order),
+                        tooltip=[
+                            alt.Tooltip("스탯:N", title="스탯"),
+                            alt.Tooltip("기본:Q", title="기본값", format=",.2f"),
+                        ],
+                    )
+                )
+                average_points = (
+                    alt.Chart(final_stat_chart)
+                    .mark_point(
+                        filled=True,
+                        shape="circle",
+                        size=130,
+                        color="#34d399",
+                        stroke="#111827",
+                        strokeWidth=1,
+                    )
+                    .encode(
+                        x=alt.X("평균:Q"),
+                        y=alt.Y("스탯:N", sort=final_order),
+                        tooltip=[
+                            alt.Tooltip("스탯:N", title="스탯"),
+                            alt.Tooltip("평균:Q", title="평균 최종", format=",.2f"),
+                            alt.Tooltip("최저:Q", title="최저", format=",.2f"),
+                            alt.Tooltip("최고:Q", title="최고", format=",.2f"),
+                        ],
+                    )
+                )
+                average_labels = (
+                    alt.Chart(final_stat_chart)
+                    .mark_text(
+                        align="left",
+                        baseline="middle",
+                        dx=9,
+                        color="#d1fae5",
+                        fontSize=11,
+                        fontWeight="bold",
+                    )
+                    .encode(
+                        x=alt.X("평균:Q"),
+                        y=alt.Y("스탯:N", sort=final_order),
+                        text=alt.Text("평균 표시:N"),
+                    )
+                )
+                show_chart(
+                    (
+                        final_range
+                        + base_points
+                        + average_points
+                        + average_labels
+                    ).properties(
+                        title="최종 스탯 범위 — 회색선: 최저~최고 · 주황: 기본 · 초록: 평균"
+                    ),
+                    height=max(330, 80 + len(final_stat_chart) * 52),
+                )
+                st.caption(
+                    "막대 4개를 나열하는 대신 최저~최고 범위를 한 선으로 묶었습니다. "
+                    "기본값과 평균 최종값의 차이를 점 위치로 비교할 수 있습니다."
+                )
 
             analytics_lines = [
                 "================================================================================",
