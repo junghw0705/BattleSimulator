@@ -8,6 +8,7 @@ import re
 import sys
 import zipfile
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 from openpyxl import Workbook
@@ -735,6 +736,38 @@ def build_csv_zip(meta_text, log_df):
             config_buffer.getvalue().encode("utf-8-sig"),
         )
     return buffer.getvalue()
+
+
+def ensure_battle_artifacts(battle_result):
+    """Build derived tables/downloads once and reuse them across Streamlit reruns."""
+    if not battle_result:
+        return battle_result
+
+    engine = battle_result["engine"]
+    summary = battle_result["summary"]
+    meta_text = battle_result["meta_text"]
+
+    if "log_df" not in battle_result:
+        battle_result["log_df"] = combat_log_dataframe(engine)
+    if not all(
+        key in battle_result
+        for key in ("car_frame", "turret_frame", "event_frame")
+    ):
+        car_frame, turret_frame, event_frame = battle_result_dataframes(
+            summary, engine
+        )
+        battle_result["car_frame"] = car_frame
+        battle_result["turret_frame"] = turret_frame
+        battle_result["event_frame"] = event_frame
+    if "excel_report" not in battle_result:
+        battle_result["excel_report"] = build_excel_report(
+            summary, meta_text, battle_result["log_df"]
+        )
+    if "csv_report" not in battle_result:
+        battle_result["csv_report"] = build_csv_zip(
+            meta_text, battle_result["log_df"]
+        )
+    return battle_result
 
 
 def percentile(sorted_values, ratio):
@@ -1894,13 +1927,16 @@ with tab_workshop:
                             train_config, enemy_config, monsters_map
                         )
                         summary = engine.run_full_simulation()
-                    st.session_state.last_battle_result = {
+                    new_battle_result = {
                         "engine": engine,
                         "summary": summary,
                         "meta_text": combat_meta_text(
                             summary, train_config, enemy_config, monsters_map
                         ),
                     }
+                    st.session_state.last_battle_result = ensure_battle_artifacts(
+                        new_battle_result
+                    )
                     st.success(
                         f"전투 완료: {summary['result']} · "
                         f"{summary['duration']}초 · 로그 {summary['log_count']:,}건"
@@ -1933,12 +1969,14 @@ with tab_workshop:
                 st.caption("상세 이벤트 기록과 다운로드는 2번 전투 로그 탭에서 확인하세요.")
 
     if st.session_state.last_battle_result:
-        battle_result = st.session_state.last_battle_result
+        battle_result = ensure_battle_artifacts(
+            st.session_state.last_battle_result
+        )
         battle_summary = battle_result["summary"]
         battle_engine = battle_result["engine"]
-        car_frame, turret_frame, event_frame = battle_result_dataframes(
-            battle_summary, battle_engine
-        )
+        car_frame = battle_result["car_frame"]
+        turret_frame = battle_result["turret_frame"]
+        event_frame = battle_result["event_frame"]
 
         st.markdown(
             '<div class="group-title">📊 전투 결과 상세 통계</div>',
@@ -1961,6 +1999,56 @@ with tab_workshop:
             )
         with logs_kpi:
             st.metric("전투 이벤트", f"{battle_summary['log_count']:,}건")
+
+        battle_chart_choice = st.selectbox(
+            "전투 결과 그래프",
+            [
+                "🚃 칸별 HP 생존 현황",
+                "🔫 포탑별 누적 피해",
+                "📈 이벤트 발생 및 피해량",
+            ],
+            key="battle_chart_choice",
+        )
+        if battle_chart_choice == "🚃 칸별 HP 생존 현황":
+            if car_frame.empty:
+                st.info("그래프로 표시할 열차 칸 데이터가 없습니다.")
+            else:
+                car_chart = car_frame[["열차 칸", "남은 HP", "최대 HP"]].copy()
+                car_chart["손실 HP"] = (
+                    car_chart["최대 HP"] - car_chart["남은 HP"]
+                ).clip(lower=0)
+                st.bar_chart(
+                    car_chart.set_index("열차 칸")[["남은 HP", "손실 HP"]],
+                    height=320,
+                )
+        elif battle_chart_choice == "🔫 포탑별 누적 피해":
+            if turret_frame.empty:
+                st.info("그래프로 표시할 포탑 데이터가 없습니다.")
+            else:
+                turret_chart = turret_frame[
+                    ["포탑", "누적 피해", "처치"]
+                ].copy()
+                st.bar_chart(
+                    turret_chart.set_index("포탑")[["누적 피해"]],
+                    height=320,
+                )
+        else:
+            if event_frame.empty:
+                st.info("그래프로 표시할 이벤트 데이터가 없습니다.")
+            else:
+                event_count_chart, event_damage_chart = st.columns(2)
+                with event_count_chart:
+                    st.caption("이벤트 발생 횟수")
+                    st.bar_chart(
+                        event_frame.set_index("이벤트")[["발생 횟수"]],
+                        height=290,
+                    )
+                with event_damage_chart:
+                    st.caption("이벤트별 총 피해량")
+                    st.bar_chart(
+                        event_frame.set_index("이벤트")[["총 피해량"]],
+                        height=290,
+                    )
 
         car_stats_tab, turret_stats_tab, event_stats_tab = st.tabs(
             [
@@ -2014,11 +2102,13 @@ with tab_log:
             "1번 워크숍에서 전투 시뮬레이션을 실행하면 열차 구성, 적 구성 및 결과가 기록됩니다."
         )
     else:
-        battle_result = st.session_state.last_battle_result
+        battle_result = ensure_battle_artifacts(
+            st.session_state.last_battle_result
+        )
         engine = battle_result["engine"]
         summary = battle_result["summary"]
         meta_text = battle_result["meta_text"]
-        log_df = combat_log_dataframe(engine)
+        log_df = battle_result["log_df"]
 
         st.markdown(
             f'<div class="mono-box">{esc(meta_text)}</div>',
@@ -2036,7 +2126,7 @@ with tab_log:
         with download_excel:
             st.download_button(
                 "📊 엑셀 저장 (.xlsx · 시트 2개)",
-                data=build_excel_report(summary, meta_text, log_df),
+                data=battle_result["excel_report"],
                 file_name="combat_log_result.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
@@ -2044,7 +2134,7 @@ with tab_log:
         with download_csv:
             st.download_button(
                 "📄 CSV 다중 저장 (.zip · 파일 2개)",
-                data=build_csv_zip(meta_text, log_df),
+                data=battle_result["csv_report"],
                 file_name="combat_log_csv_files.zip",
                 mime="application/zip",
                 use_container_width=True,
@@ -2080,38 +2170,39 @@ with tab_inspector:
     if not sheet_names:
         st.warning("로드된 엑셀 시트가 없습니다.")
     else:
-        sheet_tabs = st.tabs(
-            [
-                f"{sheet_name} ({len(loader.get_sheet_data(sheet_name))}건)"
-                for sheet_name in sheet_names
-            ]
+        selected_sheet_name = st.selectbox(
+            "확인할 데이터 시트",
+            sheet_names,
+            key="inspector_sheet_selector",
+            format_func=lambda sheet_name: (
+                f"{sheet_name} ({len(loader.get_sheet_data(sheet_name)):,}건)"
+            ),
         )
-        for sheet_tab, sheet_name in zip(sheet_tabs, sheet_names):
-            with sheet_tab:
-                records = loader.get_sheet_data(sheet_name)
-                frame = pd.DataFrame(records)
-                query = st.text_input(
-                    "🔍 검색",
-                    key=f"inspector_search_{sheet_name}",
-                    placeholder="검색어를 입력하세요...",
+        records = loader.get_sheet_data(selected_sheet_name)
+        frame = pd.DataFrame(records)
+        query = st.text_input(
+            "🔍 검색",
+            key="inspector_search",
+            placeholder="선택한 시트에서 검색할 내용을 입력하세요...",
+        )
+        if query and not frame.empty:
+            mask = frame.astype(str).apply(
+                lambda column: column.str.contains(
+                    query, case=False, na=False
                 )
-                if query and not frame.empty:
-                    mask = frame.astype(str).apply(
-                        lambda column: column.str.contains(
-                            query, case=False, na=False
-                        )
-                    )
-                    frame = frame[mask.any(axis=1)]
-                st.dataframe(
-                    arrow_safe_dataframe(frame),
-                    use_container_width=True,
-                    height=550,
-                    hide_index=True,
-                )
-                st.caption(
-                    f"표시 {len(frame):,}건 / 전체 {len(records):,}건 · "
-                    f"컬럼 {len(loader.get_sheet_columns(sheet_name))}개"
-                )
+            )
+            frame = frame[mask.any(axis=1)]
+        st.dataframe(
+            arrow_safe_dataframe(frame),
+            use_container_width=True,
+            height=610,
+            hide_index=True,
+        )
+        st.caption(
+            f"표시 {len(frame):,}건 / 전체 {len(records):,}건 · "
+            f"컬럼 {len(loader.get_sheet_columns(selected_sheet_name))}개 · "
+            "선택한 시트 1개만 렌더링하여 화면 부하를 줄였습니다."
+        )
 
 
 # ==============================================================================
@@ -2323,11 +2414,12 @@ with tab_crew:
             defense_results = []
             production_results = []
             single_roll_logs = []
+            trials_int = int(trial_count)
 
             with st.spinner(
-                f"{int(trial_count):,}회 몬테카를로 시뮬레이션을 실행하는 중입니다..."
+                f"{trials_int:,}회 몬테카를로 시뮬레이션을 실행하는 중입니다..."
             ):
-                for trial_index in range(int(trial_count)):
+                if trials_int == 1:
                     attack_count = 0
                     defense_count = 0
                     production_count = 0
@@ -2342,22 +2434,36 @@ with tab_crew:
                         else:
                             production_count += 1
                             hit_name = "🏭 생산/공업"
-                        if int(trial_count) == 1:
-                            single_roll_logs.append(
-                                f"[Lv. {roll_index + 2:2d}] 🎲 주사위 "
-                                f"{roll_value * 100:5.1f}% ➔ {hit_name} +1pt 획득 | "
-                                f"현재 누적 (⚔️:{attack_count}pt, "
-                                f"🛡️:{defense_count}pt, 🏭:{production_count}pt)"
-                            )
+                        single_roll_logs.append(
+                            f"[Lv. {roll_index + 2:2d}] 🎲 주사위 "
+                            f"{roll_value * 100:5.1f}% ➔ {hit_name} +1pt 획득 | "
+                            f"현재 누적 (⚔️:{attack_count}pt, "
+                            f"🛡️:{defense_count}pt, 🏭:{production_count}pt)"
+                        )
                     attack_results.append(attack_count)
                     defense_results.append(defense_count)
                     production_results.append(production_count)
+                else:
+                    # NumPy's multinomial sampler replaces up to 4.9 million
+                    # Python-level random iterations with one vectorized call.
+                    probability_weights = np.array(
+                        [weight_atk, weight_def, weight_prod], dtype=float
+                    )
+                    probability_weights /= probability_weights.sum()
+                    samples = np.random.default_rng().multinomial(
+                        growth_rolls,
+                        probability_weights,
+                        size=trials_int,
+                    )
+                    attack_results = samples[:, 0].tolist()
+                    defense_results = samples[:, 1].tolist()
+                    production_results = samples[:, 2].tolist()
 
             st.session_state.last_crew_sim_result = {
                 "crew": sim_crew,
                 "target_level": int(target_level),
                 "rolls": growth_rolls,
-                "trials": int(trial_count),
+                "trials": trials_int,
                 "rate": float(point_rate),
                 "probabilities": (
                     probability_atk,
@@ -2634,6 +2740,81 @@ with tab_crew:
                 height=215,
                 hide_index=True,
             )
+
+            st.markdown(
+                '<div class="selected-title">📊 승무원 성장 결과 그래프</div>',
+                unsafe_allow_html=True,
+            )
+            crew_chart_choice = st.selectbox(
+                "승무원 통계 그래프",
+                [
+                    "포인트 획득 분포",
+                    "이론 기대값과 실제 평균",
+                    "기본·평균·최저·최고 최종 스탯",
+                ],
+                key="crew_chart_choice",
+                label_visibility="collapsed",
+            )
+            if crew_chart_choice == "포인트 획득 분포":
+                point_distribution_chart = pd.concat(
+                    [
+                        pd.Series(attack_results)
+                        .value_counts()
+                        .rename("공격력"),
+                        pd.Series(defense_results)
+                        .value_counts()
+                        .rename("방어력"),
+                        pd.Series(production_results)
+                        .value_counts()
+                        .rename("생산/공업"),
+                    ],
+                    axis=1,
+                ).fillna(0)
+                point_distribution_chart = point_distribution_chart.sort_index()
+                point_distribution_chart.index.name = "획득 포인트"
+                st.bar_chart(
+                    point_distribution_chart.astype(int),
+                    height=340,
+                )
+            elif crew_chart_choice == "이론 기대값과 실제 평균":
+                expectation_chart = pd.DataFrame(
+                    {
+                        "이론 기대 포인트": [
+                            rolls * probability_atk / 100,
+                            rolls * probability_def / 100,
+                            rolls * probability_prod / 100,
+                        ],
+                        "실제 평균 포인트": [
+                            average_attack,
+                            average_defense,
+                            average_production,
+                        ],
+                    },
+                    index=["공격력", "방어력", "생산/공업"],
+                )
+                st.bar_chart(expectation_chart, height=340)
+            else:
+                final_stat_chart = pd.DataFrame(
+                    [
+                        {
+                            "스탯": name,
+                            "기본": base,
+                            "최저": min_stat,
+                            "평균": average_stat,
+                            "최고": max_stat,
+                        }
+                        for (
+                            name,
+                            base,
+                            _points,
+                            _multiplier,
+                            average_stat,
+                            min_stat,
+                            max_stat,
+                        ) in stat_rows
+                    ]
+                ).set_index("스탯")
+                st.bar_chart(final_stat_chart, height=360)
 
             analytics_lines = [
                 "================================================================================",
