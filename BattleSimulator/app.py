@@ -23,6 +23,9 @@ from data_loader import DataLoader
 from models import EnemyGroupConfig, TrainConfig, TurretConfig
 
 
+BATTLE_ARTIFACT_VERSION = 2
+
+
 # ==============================================================================
 # PAGE CONFIGURATION / DESKTOP THEME
 # ==============================================================================
@@ -613,13 +616,14 @@ def battle_result_dataframes(summary, engine):
         survival_rate = (hp_left / max_hp * 100.0) if max_hp > 0 else 0.0
         car_rows.append(
             {
-                "열차 칸": car.get("name") or "-",
-                "구분": "기관차" if car.get("type") == "locomotive" else "객차",
-                "상태": "파괴" if car.get("is_destroyed") else "생존",
-                "남은 HP": round(hp_left, 2),
+                "칸": car.get("name") or "-",
+                "타입": "기관차" if car.get("type") == "locomotive" else "객차",
+                "상태": "💥 파괴" if car.get("is_destroyed") else "✅ 생존",
+                "현재 HP": round(hp_left, 2),
                 "최대 HP": round(max_hp, 2),
-                "생존율": f"{survival_rate:.1f}%",
-                "장착 포탑": int(car.get("turrets_count") or 0),
+                "손실 HP": round(max(0.0, max_hp - hp_left), 2),
+                "생존율 (%)": round(survival_rate, 1),
+                "포탑 수": int(car.get("turrets_count") or 0),
             }
         )
 
@@ -635,22 +639,29 @@ def battle_result_dataframes(summary, engine):
             if total_turret_damage > 0
             else 0.0
         )
+        full_name = str(turret.get("full_name") or "-")
+        if "-포탑#" in full_name:
+            owner_name, turret_name = full_name.rsplit("-포탑#", 1)
+            turret_name = f"포탑#{turret_name}"
+        else:
+            owner_name, turret_name = "-", full_name
         turret_rows.append(
             {
-                "포탑": turret.get("full_name") or "-",
+                "장착 칸": owner_name,
+                "포탑": turret_name,
                 "속성": turret.get("land_type") or "-",
-                "공격 패턴": turret.get("pattern") or "-",
+                "패턴": turret.get("pattern") or "-",
                 "기본 위력": round(float(turret.get("base_power") or 0), 2),
-                "승무원 보너스": round(
+                "승무원 +": round(
                     float(turret.get("crew_power_bonus") or 0), 2
                 ),
-                "유효 위력": round(
+                "최종 위력": round(
                     float(turret.get("effective_power") or 0), 2
                 ),
                 "누적 피해": round(turret_damage, 2),
-                "피해 기여도": f"{damage_share:.1f}%",
+                "피해 비중 (%)": round(damage_share, 1),
                 "처치": int(turret.get("kills") or 0),
-                "작동 상태": "정상" if turret.get("is_active") else "정지",
+                "상태": "✅ 정상" if turret.get("is_active") else "⏸ 정지",
             }
         )
 
@@ -664,14 +675,16 @@ def battle_result_dataframes(summary, engine):
             event_rows.append(
                 {
                     "이벤트": event_name or "-",
-                    "발생 횟수": len(event_group),
-                    "전체 비중": f"{len(event_group) / len(log_frame) * 100:.1f}%",
-                    "총 피해량": round(float(damage_values.sum()), 2),
-                    "평균 피해량": round(float(damage_values.mean()), 2),
-                    "최대 피해량": round(float(damage_values.max()), 2),
+                    "횟수": len(event_group),
+                    "비중 (%)": round(
+                        len(event_group) / len(log_frame) * 100, 1
+                    ),
+                    "총 피해": round(float(damage_values.sum()), 2),
+                    "평균 피해": round(float(damage_values.mean()), 2),
+                    "최대 피해": round(float(damage_values.max()), 2),
                 }
             )
-        event_rows.sort(key=lambda row: row["발생 횟수"], reverse=True)
+        event_rows.sort(key=lambda row: row["횟수"], reverse=True)
 
     return (
         pd.DataFrame(car_rows),
@@ -743,6 +756,17 @@ def ensure_battle_artifacts(battle_result):
     if not battle_result:
         return battle_result
 
+    if battle_result.get("artifact_version") != BATTLE_ARTIFACT_VERSION:
+        for key in (
+            "log_df",
+            "car_frame",
+            "turret_frame",
+            "event_frame",
+            "excel_report",
+            "csv_report",
+        ):
+            battle_result.pop(key, None)
+
     engine = battle_result["engine"]
     summary = battle_result["summary"]
     meta_text = battle_result["meta_text"]
@@ -767,12 +791,20 @@ def ensure_battle_artifacts(battle_result):
         battle_result["csv_report"] = build_csv_zip(
             meta_text, battle_result["log_df"]
         )
+    battle_result["artifact_version"] = BATTLE_ARTIFACT_VERSION
     return battle_result
 
 
-def percentile(sorted_values, ratio):
-    index = int(len(sorted_values) * ratio)
-    return sorted_values[min(index, len(sorted_values) - 1)]
+def percentile(values, ratio):
+    if not values:
+        return 0
+    return int(
+        np.percentile(
+            np.asarray(values, dtype=float),
+            ratio * 100,
+            method="nearest",
+        )
+    )
 
 
 def arrow_safe_dataframe(frame):
@@ -2013,12 +2045,11 @@ with tab_workshop:
             if car_frame.empty:
                 st.info("그래프로 표시할 열차 칸 데이터가 없습니다.")
             else:
-                car_chart = car_frame[["열차 칸", "남은 HP", "최대 HP"]].copy()
-                car_chart["손실 HP"] = (
-                    car_chart["최대 HP"] - car_chart["남은 HP"]
-                ).clip(lower=0)
+                car_chart = car_frame[
+                    ["칸", "현재 HP", "손실 HP"]
+                ].copy()
                 st.bar_chart(
-                    car_chart.set_index("열차 칸")[["남은 HP", "손실 HP"]],
+                    car_chart.set_index("칸")[["현재 HP", "손실 HP"]],
                     height=320,
                 )
         elif battle_chart_choice == "🔫 포탑별 누적 피해":
@@ -2040,13 +2071,13 @@ with tab_workshop:
                 with event_count_chart:
                     st.caption("이벤트 발생 횟수")
                     st.bar_chart(
-                        event_frame.set_index("이벤트")[["발생 횟수"]],
+                        event_frame.set_index("이벤트")[["횟수"]],
                         height=290,
                     )
                 with event_damage_chart:
                     st.caption("이벤트별 총 피해량")
                     st.bar_chart(
-                        event_frame.set_index("이벤트")[["총 피해량"]],
+                        event_frame.set_index("이벤트")[["총 피해"]],
                         height=290,
                     )
 
@@ -2066,6 +2097,29 @@ with tab_workshop:
                     use_container_width=True,
                     height=min(360, 78 + len(car_frame) * 36),
                     hide_index=True,
+                    column_config={
+                        "칸": st.column_config.TextColumn("열차 칸", width="large"),
+                        "타입": st.column_config.TextColumn("타입", width="small"),
+                        "상태": st.column_config.TextColumn("상태", width="small"),
+                        "현재 HP": st.column_config.NumberColumn(
+                            "현재 HP", format="%.1f"
+                        ),
+                        "최대 HP": st.column_config.NumberColumn(
+                            "최대 HP", format="%.1f"
+                        ),
+                        "손실 HP": st.column_config.NumberColumn(
+                            "손실 HP", format="%.1f"
+                        ),
+                        "생존율 (%)": st.column_config.ProgressColumn(
+                            "생존율",
+                            min_value=0,
+                            max_value=100,
+                            format="%.1f%%",
+                        ),
+                        "포탑 수": st.column_config.NumberColumn(
+                            "포탑 수", format="%d"
+                        ),
+                    },
                 )
         with turret_stats_tab:
             if turret_frame.empty:
@@ -2076,6 +2130,44 @@ with tab_workshop:
                     use_container_width=True,
                     height=min(420, 78 + len(turret_frame) * 36),
                     hide_index=True,
+                    column_config={
+                        "장착 칸": st.column_config.TextColumn(
+                            "장착 칸", width="large"
+                        ),
+                        "포탑": st.column_config.TextColumn(
+                            "포탑", width="medium"
+                        ),
+                        "속성": st.column_config.TextColumn(
+                            "속성", width="small"
+                        ),
+                        "패턴": st.column_config.TextColumn(
+                            "패턴", width="small"
+                        ),
+                        "기본 위력": st.column_config.NumberColumn(
+                            "기본", format="%.1f"
+                        ),
+                        "승무원 +": st.column_config.NumberColumn(
+                            "승무원 +", format="%.1f"
+                        ),
+                        "최종 위력": st.column_config.NumberColumn(
+                            "최종", format="%.1f"
+                        ),
+                        "누적 피해": st.column_config.NumberColumn(
+                            "누적 피해", format="%.1f"
+                        ),
+                        "피해 비중 (%)": st.column_config.ProgressColumn(
+                            "피해 비중",
+                            min_value=0,
+                            max_value=100,
+                            format="%.1f%%",
+                        ),
+                        "처치": st.column_config.NumberColumn(
+                            "처치", format="%d"
+                        ),
+                        "상태": st.column_config.TextColumn(
+                            "상태", width="small"
+                        ),
+                    },
                 )
         with event_stats_tab:
             if event_frame.empty:
@@ -2086,6 +2178,29 @@ with tab_workshop:
                     use_container_width=True,
                     height=min(420, 78 + len(event_frame) * 36),
                     hide_index=True,
+                    column_config={
+                        "이벤트": st.column_config.TextColumn(
+                            "이벤트", width="medium"
+                        ),
+                        "횟수": st.column_config.NumberColumn(
+                            "횟수", format="%d"
+                        ),
+                        "비중 (%)": st.column_config.ProgressColumn(
+                            "로그 비중",
+                            min_value=0,
+                            max_value=100,
+                            format="%.1f%%",
+                        ),
+                        "총 피해": st.column_config.NumberColumn(
+                            "총 피해", format="%.1f"
+                        ),
+                        "평균 피해": st.column_config.NumberColumn(
+                            "평균 피해", format="%.2f"
+                        ),
+                        "최대 피해": st.column_config.NumberColumn(
+                            "최대 피해", format="%.1f"
+                        ),
+                    },
                 )
 
 
@@ -2616,18 +2731,23 @@ with tab_crew:
                 [
                     {
                         "성장 스탯": stat_name,
-                        "설정 확률": f"{probability:.1f}%",
-                        "이론 기대값": f"{rolls * probability / 100:.2f} pt",
-                        "실제 평균": f"{average:.2f} pt",
-                        "기대값 오차": f"{average - rolls * probability / 100:+.2f} pt",
-                        "표준편차": f"{std_dev:.2f}",
-                        "최소": min_value,
-                        "하위 10%": percentile(sorted_values, 0.10),
-                        "하위 25%": percentile(sorted_values, 0.25),
-                        "중앙값": percentile(sorted_values, 0.50),
-                        "상위 25%": percentile(sorted_values, 0.75),
-                        "상위 10%": percentile(sorted_values, 0.90),
-                        "최대": max_value,
+                        "확률 (%)": round(probability, 1),
+                        "성장 횟수": rolls,
+                        "이론 평균 (pt)": round(
+                            rolls * probability / 100, 2
+                        ),
+                        "실제 평균 (pt)": round(average, 2),
+                        "오차 (pt)": round(
+                            average - rolls * probability / 100, 2
+                        ),
+                        "표준편차": round(std_dev, 2),
+                        "Min": min_value,
+                        "P10": percentile(sorted_values, 0.10),
+                        "P25": percentile(sorted_values, 0.25),
+                        "P50": percentile(sorted_values, 0.50),
+                        "P75": percentile(sorted_values, 0.75),
+                        "P90": percentile(sorted_values, 0.90),
+                        "Max": max_value,
                     }
                     for (
                         stat_name,
@@ -2649,6 +2769,40 @@ with tab_crew:
                 use_container_width=True,
                 height=185,
                 hide_index=True,
+                column_config={
+                    "성장 스탯": st.column_config.TextColumn(
+                        "성장 스탯", width="medium"
+                    ),
+                    "확률 (%)": st.column_config.NumberColumn(
+                        "확률", format="%.1f%%"
+                    ),
+                    "성장 횟수": st.column_config.NumberColumn(
+                        "총 성장", format="%d"
+                    ),
+                    "이론 평균 (pt)": st.column_config.NumberColumn(
+                        "이론 평균", format="%.2f pt"
+                    ),
+                    "실제 평균 (pt)": st.column_config.NumberColumn(
+                        "실제 평균", format="%.2f pt"
+                    ),
+                    "오차 (pt)": st.column_config.NumberColumn(
+                        "평균 오차", format="%+.2f pt"
+                    ),
+                    "표준편차": st.column_config.NumberColumn(
+                        "표준편차", format="%.2f"
+                    ),
+                    "Min": st.column_config.NumberColumn("Min", format="%d"),
+                    "P10": st.column_config.NumberColumn("P10", format="%d"),
+                    "P25": st.column_config.NumberColumn("P25", format="%d"),
+                    "P50": st.column_config.NumberColumn("P50", format="%d"),
+                    "P75": st.column_config.NumberColumn("P75", format="%d"),
+                    "P90": st.column_config.NumberColumn("P90", format="%d"),
+                    "Max": st.column_config.NumberColumn("Max", format="%d"),
+                },
+            )
+            st.caption(
+                "P10/P25/P50/P75/P90은 각각 10·25·50·75·90 백분위 값입니다. "
+                "예: P90은 전체 결과의 약 90%가 해당 포인트 이하라는 의미입니다."
             )
 
             result_crew = result["crew"]
@@ -2711,13 +2865,13 @@ with tab_crew:
             stats_frame = pd.DataFrame(
                 [
                     {
-                        "스탯 항목": name,
-                        "기본 수치(Base)": f"{base:.1f}",
-                        "평균 획득 포인트": f"{points:.2f} pt",
-                        "평균 배율(Mult)": f"{multiplier:.3f}x (+{(multiplier - 1) * 100:.1f}%)",
-                        "평균 최종 스탯": f"{average_stat:.2f}",
-                        "최저 결과(Min)": f"{min_stat:.2f}",
-                        "최고 결과(Max)": f"{max_stat:.2f}",
+                        "스탯": name,
+                        "Base": round(base, 2),
+                        "평균 포인트": round(points, 2),
+                        "증가율 (%)": round((multiplier - 1) * 100, 2),
+                        "평균 최종": round(average_stat, 2),
+                        "Min": round(min_stat, 2),
+                        "Max": round(max_stat, 2),
                     }
                     for (
                         name,
@@ -2739,6 +2893,29 @@ with tab_crew:
                 use_container_width=True,
                 height=215,
                 hide_index=True,
+                column_config={
+                    "스탯": st.column_config.TextColumn(
+                        "스탯", width="large"
+                    ),
+                    "Base": st.column_config.NumberColumn(
+                        "기본값", format="%.2f"
+                    ),
+                    "평균 포인트": st.column_config.NumberColumn(
+                        "평균 포인트", format="%.2f pt"
+                    ),
+                    "증가율 (%)": st.column_config.NumberColumn(
+                        "평균 증가율", format="+%.2f%%"
+                    ),
+                    "평균 최종": st.column_config.NumberColumn(
+                        "평균 최종", format="%.2f"
+                    ),
+                    "Min": st.column_config.NumberColumn(
+                        "최저", format="%.2f"
+                    ),
+                    "Max": st.column_config.NumberColumn(
+                        "최고", format="%.2f"
+                    ),
+                },
             )
 
             st.markdown(
