@@ -604,6 +604,81 @@ def combat_log_dataframe(engine):
     return pd.DataFrame(records, columns=columns)
 
 
+def battle_result_dataframes(summary, engine):
+    car_rows = []
+    for car in summary.get("cars", []):
+        max_hp = float(car.get("max_hp") or 0)
+        hp_left = float(car.get("hp_left") or 0)
+        survival_rate = (hp_left / max_hp * 100.0) if max_hp > 0 else 0.0
+        car_rows.append(
+            {
+                "열차 칸": car.get("name") or "-",
+                "구분": "기관차" if car.get("type") == "locomotive" else "객차",
+                "상태": "파괴" if car.get("is_destroyed") else "생존",
+                "남은 HP": round(hp_left, 2),
+                "최대 HP": round(max_hp, 2),
+                "생존율": f"{survival_rate:.1f}%",
+                "장착 포탑": int(car.get("turrets_count") or 0),
+            }
+        )
+
+    total_turret_damage = sum(
+        float(turret.get("total_damage") or 0)
+        for turret in summary.get("turrets", [])
+    )
+    turret_rows = []
+    for turret in summary.get("turrets", []):
+        turret_damage = float(turret.get("total_damage") or 0)
+        damage_share = (
+            turret_damage / total_turret_damage * 100.0
+            if total_turret_damage > 0
+            else 0.0
+        )
+        turret_rows.append(
+            {
+                "포탑": turret.get("full_name") or "-",
+                "속성": turret.get("land_type") or "-",
+                "공격 패턴": turret.get("pattern") or "-",
+                "기본 위력": round(float(turret.get("base_power") or 0), 2),
+                "승무원 보너스": round(
+                    float(turret.get("crew_power_bonus") or 0), 2
+                ),
+                "유효 위력": round(
+                    float(turret.get("effective_power") or 0), 2
+                ),
+                "누적 피해": round(turret_damage, 2),
+                "피해 기여도": f"{damage_share:.1f}%",
+                "처치": int(turret.get("kills") or 0),
+                "작동 상태": "정상" if turret.get("is_active") else "정지",
+            }
+        )
+
+    log_frame = combat_log_dataframe(engine)
+    event_rows = []
+    if not log_frame.empty:
+        for event_name, event_group in log_frame.groupby("이벤트", dropna=False):
+            damage_values = pd.to_numeric(
+                event_group["피해량"], errors="coerce"
+            ).fillna(0.0)
+            event_rows.append(
+                {
+                    "이벤트": event_name or "-",
+                    "발생 횟수": len(event_group),
+                    "전체 비중": f"{len(event_group) / len(log_frame) * 100:.1f}%",
+                    "총 피해량": round(float(damage_values.sum()), 2),
+                    "평균 피해량": round(float(damage_values.mean()), 2),
+                    "최대 피해량": round(float(damage_values.max()), 2),
+                }
+            )
+        event_rows.sort(key=lambda row: row["발생 횟수"], reverse=True)
+
+    return (
+        pd.DataFrame(car_rows),
+        pd.DataFrame(turret_rows),
+        pd.DataFrame(event_rows),
+    )
+
+
 def build_excel_report(summary, meta_text, log_df):
     workbook = Workbook()
     log_sheet = workbook.active
@@ -1857,6 +1932,74 @@ with tab_workshop:
                 )
                 st.caption("상세 이벤트 기록과 다운로드는 2번 전투 로그 탭에서 확인하세요.")
 
+    if st.session_state.last_battle_result:
+        battle_result = st.session_state.last_battle_result
+        battle_summary = battle_result["summary"]
+        battle_engine = battle_result["engine"]
+        car_frame, turret_frame, event_frame = battle_result_dataframes(
+            battle_summary, battle_engine
+        )
+
+        st.markdown(
+            '<div class="group-title">📊 전투 결과 상세 통계</div>',
+            unsafe_allow_html=True,
+        )
+        result_kpi, duration_kpi, damage_kpi, kills_kpi, logs_kpi = st.columns(5)
+        with result_kpi:
+            st.metric("전투 결과", battle_summary["result"])
+        with duration_kpi:
+            st.metric("전투 시간", f"{battle_summary['duration']:.2f}초")
+        with damage_kpi:
+            st.metric(
+                "총 가한 피해",
+                f"{battle_summary['total_damage_dealt']:,.2f}",
+            )
+        with kills_kpi:
+            st.metric(
+                "몬스터 처치",
+                f"{battle_summary['total_kills']} / {len(battle_engine.monsters)}",
+            )
+        with logs_kpi:
+            st.metric("전투 이벤트", f"{battle_summary['log_count']:,}건")
+
+        car_stats_tab, turret_stats_tab, event_stats_tab = st.tabs(
+            [
+                "🚃 칸별 생존 현황",
+                "🔫 포탑별 전투 성과",
+                "📈 이벤트 유형 집계",
+            ]
+        )
+        with car_stats_tab:
+            if car_frame.empty:
+                st.info("표시할 열차 칸 결과가 없습니다.")
+            else:
+                st.dataframe(
+                    car_frame,
+                    use_container_width=True,
+                    height=min(360, 78 + len(car_frame) * 36),
+                    hide_index=True,
+                )
+        with turret_stats_tab:
+            if turret_frame.empty:
+                st.info("장착된 포탑이 없어 포탑별 성과가 없습니다.")
+            else:
+                st.dataframe(
+                    turret_frame,
+                    use_container_width=True,
+                    height=min(420, 78 + len(turret_frame) * 36),
+                    hide_index=True,
+                )
+        with event_stats_tab:
+            if event_frame.empty:
+                st.info("집계할 전투 이벤트가 없습니다.")
+            else:
+                st.dataframe(
+                    event_frame,
+                    use_container_width=True,
+                    height=min(420, 78 + len(event_frame) * 36),
+                    hide_index=True,
+                )
+
 
 # ==============================================================================
 # TAB 2: COMBAT LOG
@@ -2333,6 +2476,74 @@ with tab_crew:
                     f"{average_production:.2f} pt",
                     f"{average_production / rolls * 100:.1f}% · {min_production}~{max_production}pt",
                 )
+
+            distribution_specs = [
+                (
+                    "⚔️ 공격력",
+                    probability_atk,
+                    average_attack,
+                    std_attack,
+                    min_attack,
+                    max_attack,
+                    sorted_attack,
+                ),
+                (
+                    "🛡️ 방어력",
+                    probability_def,
+                    average_defense,
+                    std_defense,
+                    min_defense,
+                    max_defense,
+                    sorted_defense,
+                ),
+                (
+                    "🏭 생산/공업",
+                    probability_prod,
+                    average_production,
+                    std_production,
+                    min_production,
+                    max_production,
+                    sorted_production,
+                ),
+            ]
+            distribution_frame = pd.DataFrame(
+                [
+                    {
+                        "성장 스탯": stat_name,
+                        "설정 확률": f"{probability:.1f}%",
+                        "이론 기대값": f"{rolls * probability / 100:.2f} pt",
+                        "실제 평균": f"{average:.2f} pt",
+                        "기대값 오차": f"{average - rolls * probability / 100:+.2f} pt",
+                        "표준편차": f"{std_dev:.2f}",
+                        "최소": min_value,
+                        "하위 10%": percentile(sorted_values, 0.10),
+                        "하위 25%": percentile(sorted_values, 0.25),
+                        "중앙값": percentile(sorted_values, 0.50),
+                        "상위 25%": percentile(sorted_values, 0.75),
+                        "상위 10%": percentile(sorted_values, 0.90),
+                        "최대": max_value,
+                    }
+                    for (
+                        stat_name,
+                        probability,
+                        average,
+                        std_dev,
+                        min_value,
+                        max_value,
+                        sorted_values,
+                    ) in distribution_specs
+                ]
+            )
+            st.markdown(
+                '<div class="selected-title">📈 성장 포인트 확률·편차·백분위 통계표</div>',
+                unsafe_allow_html=True,
+            )
+            st.dataframe(
+                distribution_frame,
+                use_container_width=True,
+                height=185,
+                hide_index=True,
+            )
 
             result_crew = result["crew"]
             base_land = float(result_crew.get("crewLandpower") or 0)
