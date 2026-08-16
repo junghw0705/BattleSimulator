@@ -16,7 +16,7 @@ from models import TrainConfig, CoachSlot, TurretConfig, EnemyGroupConfig
 from battle_engine import BattleSimulationEngine
 
 # ==============================================================================
-# PAGE CONFIGURATION & HIGH-CONTRAST DARK THEME
+# PAGE CONFIGURATION & DARK STUDIO THEME
 # ==============================================================================
 st.set_page_config(
     page_title="Siecletrain Visual Battle Simulator",
@@ -25,7 +25,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Custom High-Legibility Modern Dark CSS
 st.markdown("""
 <style>
     /* Global Base */
@@ -40,104 +39,61 @@ st.markdown("""
         background: linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%);
         border: 1px solid #4f46e5;
         border-radius: 10px;
-        padding: 16px 24px;
-        margin-bottom: 16px;
+        padding: 14px 20px;
+        margin-bottom: 14px;
         display: flex;
         align-items: center;
         justify-content: space-between;
     }
     .header-title {
-        font-size: 24px;
+        font-size: 22px;
         font-weight: 800;
         color: #a5b4fc;
         margin: 0;
         letter-spacing: -0.5px;
     }
     .header-desc {
-        font-size: 13px;
+        font-size: 12px;
         color: #94a3b8;
-        margin: 4px 0 0 0;
+        margin: 2px 0 0 0;
     }
 
-    /* Train Visual Blueprint Container */
-    .blueprint-wrapper {
-        background-color: #1e293b;
-        border: 1px solid #334155;
-        border-radius: 10px;
-        padding: 16px;
-        margin-bottom: 20px;
-    }
-    .blueprint-train-flow {
+    /* Section Containers */
+    .section-head {
+        font-size: 15px;
+        font-weight: 800;
+        color: #f8fafc;
+        margin-bottom: 10px;
         display: flex;
         align-items: center;
-        gap: 12px;
-        overflow-x: auto;
-        padding: 8px 4px;
-    }
-    .blueprint-card {
-        min-width: 170px;
-        background-color: #0f172a;
-        border: 2px solid #475569;
-        border-radius: 8px;
-        padding: 12px;
-        text-align: center;
-    }
-    .blueprint-card.active {
-        border-color: #6366f1;
-        background-color: #1e1b4b;
-        box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);
-    }
-    .bp-title {
-        font-size: 14px;
-        font-weight: 700;
-        color: #38bdf8;
-        margin-bottom: 6px;
-        white-space: nowrap;
-    }
-    .bp-stat {
-        font-size: 12px;
-        color: #cbd5e1;
-        margin: 2px 0;
-    }
-    .bp-badge {
-        display: inline-block;
-        font-size: 11px;
-        font-weight: 600;
-        padding: 2px 8px;
-        border-radius: 4px;
-        margin-top: 4px;
-    }
-    .bp-arrow {
-        color: #64748b;
-        font-size: 20px;
-        font-weight: bold;
+        gap: 6px;
     }
 
-    /* Inspector Info Card */
+    /* Info Badge Grid */
     .info-card {
         background-color: #0f172a;
         border: 1px solid #334155;
         border-radius: 8px;
-        padding: 12px 14px;
-        margin: 8px 0;
+        padding: 10px 12px;
+        margin: 6px 0 10px 0;
     }
     .info-card-title {
         font-size: 13px;
         font-weight: 700;
         color: #38bdf8;
-        margin-bottom: 8px;
+        margin-bottom: 6px;
         border-bottom: 1px solid #1e293b;
-        padding-bottom: 4px;
+        padding-bottom: 3px;
     }
     .info-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
         gap: 6px;
     }
     .info-item {
-        font-size: 12px;
+        font-size: 11px;
         background-color: #1e293b;
-        padding: 4px 8px;
+        padding: 4px 6px;
         border-radius: 4px;
         border: 1px solid #334155;
     }
@@ -149,8 +105,8 @@ st.markdown("""
         gap: 8px;
     }
     .stTabs [data-baseweb="tab"] {
-        padding: 10px 20px;
-        font-size: 14px;
+        padding: 8px 18px;
+        font-size: 13px;
         font-weight: 700;
         border-radius: 8px 8px 0 0;
         background-color: #1e293b;
@@ -164,15 +120,10 @@ st.markdown("""
         border-color: #6366f1 !important;
     }
 
-    /* Section Subheadings */
-    .section-head {
-        font-size: 16px;
-        font-weight: 800;
-        color: #f8fafc;
-        margin-bottom: 12px;
-        display: flex;
-        align-items: center;
-        gap: 6px;
+    /* Buttons */
+    div.stButton > button {
+        border-radius: 6px;
+        font-weight: 600;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -221,16 +172,23 @@ if not train_config.locomotive and locomotives_map:
 # ==============================================================================
 # TOP APP HEADER
 # ==============================================================================
-st.markdown("""
-<div class="header-banner">
-    <div>
-        <p class="header-title">🚂 SIECLETRAIN VISUAL BATTLE SIMULATOR</p>
-        <p class="header-desc">데이터 기반 쿼터뷰 열차 전투 밸런스 및 승무원 성장 시뮬레이터 (Studio Web Edition)</p>
+col_h1, col_h2 = st.columns([3.5, 1])
+with col_h1:
+    st.markdown("""
+    <div class="header-banner">
+        <div>
+            <p class="header-title">🚂 SIECLETRAIN VISUAL BATTLE SIMULATOR</p>
+            <p class="header-desc">데이터 기반 쿼터뷰 열차 전투 밸런스 및 승무원 성장 시뮬레이터 (Studio Web Edition)</p>
+        </div>
     </div>
-</div>
-""", unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
+with col_h2:
+    if st.button("🔄 엑셀 데이터 새로고침", use_container_width=True):
+        loader.reload_all_data()
+        st.success("엑셀 데이터를 성공적으로 다시 불러왔습니다!")
+        st.rerun()
 
-# 4 Main Tabs
+# 4 Main Tabs matching Desktop GUI
 tab1, tab2, tab3, tab4 = st.tabs([
     "🚂 1. 통합 열차 & 적 세팅 워크숍",
     "📋 2. 전투 로그 시트 (Combat Log)",
@@ -248,53 +206,38 @@ with tab1:
     crew_prod = sum(c.get_effective_crew_stats()["product"] for c in train_config.coaches)
     crew_ind = sum(c.get_effective_crew_stats()["industry"] for c in train_config.coaches)
 
-    # 1. Visual Train Blueprint (상단 실시간 조감도)
-    st.markdown("""
-    <div class="blueprint-wrapper">
-        <div style="font-size:14px; font-weight:700; color:#cbd5e1; margin-bottom:8px;">
-            🚂 실시간 열차 조감도 및 연결 상태 (Visual Train Blueprint)
-        </div>
-    """, unsafe_allow_html=True)
+    # 1. Clickable Visual Train Blueprint (상단 실시간 조감도 & 클릭 선택)
+    with st.container(border=True):
+        st.markdown("<div style='font-size:13px; font-weight:700; color:#94a3b8; margin-bottom:6px;'>🚂 실시간 열차 조감도 (칸을 클릭하면 해당 객차의 세부 설정으로 즉시 전환됩니다)</div>", unsafe_allow_html=True)
 
-    bp_html = ['<div class="blueprint-train-flow">']
-    # Locomotive Block
-    loco_nm = train_config.locomotive.get("locomotiveName", "기관차") if train_config.locomotive else "기관차 미선택"
-    lt_cnt = len(train_config.locomotive_turrets)
-    is_loco_act = "active" if st.session_state.selected_coach_idx == 0 else ""
-    bp_html.append(f'''
-    <div class="blueprint-card {is_loco_act}">
-        <div class="bp-title">🚂 {loco_nm}</div>
-        <div class="bp-stat">❤️ 체력: <b>{loco_hp:.0f}</b> | 🛡️ 방어: <b>{stats["locomotive_def"]:.0f}</b></div>
-        <div class="bp-badge" style="background-color:#0369a1; color:#e0f2fe;">자체포탑 {lt_cnt}/2개</div>
-    </div>
-    ''')
+        total_nodes = 1 + len(train_config.coaches)
+        bp_cols = st.columns(total_nodes)
 
-    # Coach Blocks
-    for idx, c_slot in enumerate(train_config.coaches):
-        bp_html.append('<div class="bp-arrow">➔</div>')
-        is_c_act = "active" if st.session_state.selected_coach_idx == (idx + 1) else ""
-        c_nm = c_slot.get_name()
-        cr_nm = c_slot.crew.get("crewName") if c_slot.crew else "미배치"
-        cr_lvl = f"Lv.{c_slot.crew_level}" if c_slot.crew else ""
-        t_cnt = len(c_slot.turrets)
-        c_hp = c_slot.get_couch_stats()["hp"]
-        c_def = c_slot.get_total_coach_def()
+        # Locomotive Block Button
+        with bp_cols[0]:
+            is_loco_sel = (st.session_state.selected_coach_idx == 0)
+            loco_nm = train_config.locomotive.get("locomotiveName", "기관차") if train_config.locomotive else "기관차"
+            lt_cnt = len(train_config.locomotive_turrets)
+            btn_loco_type = "primary" if is_loco_sel else "secondary"
+            if st.button(f"🚂 {loco_nm}\n(HP:{loco_hp:.0f} | 🛡️:{stats['locomotive_def']:.0f})\n포탑:{lt_cnt}/2", key="bp_btn_loco", type=btn_loco_type, use_container_width=True):
+                st.session_state.selected_coach_idx = 0
+                st.rerun()
 
-        bp_html.append(f'''
-        <div class="blueprint-card {is_c_act}">
-            <div class="bp-title">🚃 #{c_slot.index} {c_nm}</div>
-            <div class="bp-stat">❤️ HP: <b>{c_hp:.0f}</b> | 🛡️ Def: <b>{c_def:.0f}</b></div>
-            <div class="bp-badge" style="background-color:#581c87; color:#f3e8ff;">👨‍✈️ {cr_nm} {cr_lvl}</div><br/>
-            <div class="bp-badge" style="background-color:#854d0e; color:#fef08a;">🔫 포탑 {t_cnt}/4개</div>
-        </div>
-        ''')
+        # Coach Block Buttons
+        for idx, c_slot in enumerate(train_config.coaches):
+            with bp_cols[idx + 1]:
+                is_c_sel = (st.session_state.selected_coach_idx == (idx + 1))
+                c_nm = c_slot.get_name()
+                cr_nm = c_slot.crew.get("crewName") if c_slot.crew else "미배치"
+                cr_lvl = f"Lv.{c_slot.crew_level}" if c_slot.crew else ""
+                t_cnt = len(c_slot.turrets)
+                c_hp = c_slot.get_couch_stats()["hp"]
+                c_def = c_slot.get_total_coach_def()
+                btn_c_type = "primary" if is_c_sel else "secondary"
 
-    if not train_config.coaches:
-        bp_html.append('<div class="bp-arrow">➔</div>')
-        bp_html.append('<div class="blueprint-card" style="border-style:dashed; opacity:0.6;"><div class="bp-title">연결된 객차 없음</div><div class="bp-stat">아래에서 객차를 추가하세요</div></div>')
-
-    bp_html.append('</div></div>')
-    st.markdown("".join(bp_html), unsafe_allow_html=True)
+                if st.button(f"🚃 #{c_slot.index} {c_nm}\n(HP:{c_hp:.0f}|Def:{c_def:.0f})\n{cr_nm} {cr_lvl} [T:{t_cnt}/4]", key=f"bp_btn_c_{idx}", type=btn_c_type, use_container_width=True):
+                    st.session_state.selected_coach_idx = idx + 1
+                    st.rerun()
 
     # Top KPI Metrics Cards
     k_col1, k_col2, k_col3, k_col4, k_col5 = st.columns(5)
@@ -309,7 +252,7 @@ with tab1:
     with k_col5:
         st.metric("🏭 생산력 / 공업력", f"{crew_prod:.1f} / {crew_ind:.1f}", "열차 총 생산 합계")
 
-    st.markdown("<hr style='margin: 16px 0; border-color: #334155;'>", unsafe_allow_html=True)
+    st.markdown("<hr style='margin: 12px 0; border-color: #334155;'>", unsafe_allow_html=True)
 
     # 3-Column Studio Layout
     c1, c2, c3 = st.columns([1.15, 1.25, 1.15])
@@ -339,7 +282,7 @@ with tab1:
                         <div class="info-item"><span class="info-label">HP:</span> <span class="info-val">{l_data.get("locomotiveHp")}</span></div>
                         <div class="info-item"><span class="info-label">Def:</span> <span class="info-val">{l_data.get("locomotiveDef")}</span></div>
                         <div class="info-item"><span class="info-label">보호막:</span> <span class="info-val">{l_data.get("locomotiveShield")}</span></div>
-                        <div class="info-item"><span class="info-label">연결한도:</span> <span class="info-val">{l_data.get("locomotiveCouch")}칸</span></div>
+                        <div class="info-item"><span class="info-label">객차한도:</span> <span class="info-val">{l_data.get("locomotiveCouch")}칸</span></div>
                         <div class="info-item"><span class="info-label">시너지:</span> <span class="info-val">{l_data.get("synergy") or "없음"}</span></div>
                     </div>
                 </div>
@@ -591,7 +534,7 @@ with tab1:
                             slot.turrets.pop(idx)
                             st.rerun()
             else:
-                st.info("🚂 현재 [기관차]가 선택되어 있습니다. 객차를 조작하려면 위의 드롭다운에서 객차를 선택하세요.")
+                st.info("🚂 현재 [기관차]가 선택되어 있습니다. 객차를 조작하려면 위의 조감도 또는 드롭다운에서 객차를 선택하세요.")
 
     # ----------------------------------------------------
     # COLUMN 3: 적 군단 세팅 & 시뮬레이션
@@ -635,24 +578,56 @@ with tab1:
             </div>
             """, unsafe_allow_html=True)
 
-            # Add single monster
+            # Add monster with Quantity Chooser
             m_opts = list(monsters_map.keys())
-            col_m1, col_m2 = st.columns([2.2, 1])
+            st.markdown("###### ➕ 몬스터 직접 추가")
+            col_m1, col_m2, col_m3 = st.columns([2.2, 1.1, 1.2])
             with col_m1:
-                sel_m_id = st.selectbox("몬스터 추가", m_opts, format_func=lambda k: f"{monsters_map[k].get('monsterName')} (HP:{monsters_map[k].get('monsterHp')})")
+                sel_m_id = st.selectbox("몬스터 종류", m_opts, format_func=lambda k: f"{monsters_map[k].get('monsterName')} (HP:{monsters_map[k].get('monsterHp')})")
             with col_m2:
-                if st.button("적 추가 (+)", use_container_width=True):
+                add_cnt = st.number_input("수량", min_value=1, max_value=50, value=1, step=1, key="num_add_m_cnt")
+            with col_m3:
+                st.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
+                if st.button("추가 (+)", key="btn_add_monster_with_count", use_container_width=True):
+                    cur = enemy_config.monster_counts.get(sel_m_id, 0)
+                    enemy_config.set_monster_count(sel_m_id, cur + add_cnt)
+                    st.rerun()
+
+            # Quick Quantity Preset Buttons
+            col_qp1, col_qp2, col_qp3 = st.columns(3)
+            with col_qp1:
+                if st.button(f"+1마리 추가", key="btn_qp_1", use_container_width=True):
                     cur = enemy_config.monster_counts.get(sel_m_id, 0)
                     enemy_config.set_monster_count(sel_m_id, cur + 1)
                     st.rerun()
+            with col_qp2:
+                if st.button(f"+5마리 추가", key="btn_qp_5", use_container_width=True):
+                    cur = enemy_config.monster_counts.get(sel_m_id, 0)
+                    enemy_config.set_monster_count(sel_m_id, cur + 5)
+                    st.rerun()
+            with col_qp3:
+                if st.button(f"+10마리 추가", key="btn_qp_10", use_container_width=True):
+                    cur = enemy_config.monster_counts.get(sel_m_id, 0)
+                    enemy_config.set_monster_count(sel_m_id, cur + 10)
+                    st.rerun()
 
             if enemy_config.monster_counts:
-                st.markdown("###### 📋 편성된 몬스터 목록")
+                st.markdown("###### 📋 편성된 몬스터 목록 (마리수 조절)")
                 for m_k, m_cnt in list(enemy_config.monster_counts.items()):
                     m_info = monsters_map.get(m_k, {})
-                    c_m_lbl, c_m_del = st.columns([3, 1])
+                    c_m_lbl, c_m_m1, c_m_cnt, c_m_p1, c_m_del = st.columns([3, 0.7, 1, 0.7, 0.9])
                     with c_m_lbl:
-                        st.caption(f"• **{m_info.get('monsterName', m_k)}**: {m_cnt}마리 (HP:{m_info.get('monsterHp', 0)} | ATK:{m_info.get('monsterPower', 0)})")
+                        st.caption(f"• **{m_info.get('monsterName', m_k)}** (HP:{m_info.get('monsterHp', 0)})")
+                    with c_m_m1:
+                        if st.button("-", key=f"btn_m_sub_{m_k}", use_container_width=True):
+                            enemy_config.set_monster_count(m_k, max(0, m_cnt - 1))
+                            st.rerun()
+                    with c_m_cnt:
+                        st.markdown(f"<div style='text-align:center; font-weight:700; font-size:12px;'>{m_cnt}마리</div>", unsafe_allow_html=True)
+                    with c_m_p1:
+                        if st.button("+", key=f"btn_m_add_{m_k}", use_container_width=True):
+                            enemy_config.set_monster_count(m_k, m_cnt + 1)
+                            st.rerun()
                     with c_m_del:
                         if st.button("삭제", key=f"del_m_{m_k}", use_container_width=True):
                             enemy_config.set_monster_count(m_k, 0)
