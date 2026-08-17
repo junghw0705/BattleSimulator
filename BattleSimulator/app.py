@@ -904,37 +904,18 @@ normalize_selected_index()
 # ==============================================================================
 # HEADER
 # ==============================================================================
-header_left, header_right = st.columns([5, 1.45])
-with header_left:
-    st.markdown(
-        """
-        <div class="app-header">
-            <div class="app-mark">🚂</div>
-            <div>
-                <div class="app-title">SIECLETRAIN BATTLE SIMULATOR</div>
-                <div class="app-subtitle">열차 구성 · 적 편성 · 전투 로그 · 승무원 성장 분석</div>
-            </div>
+st.markdown(
+    """
+    <div class="app-header">
+        <div class="app-mark">🚂</div>
+        <div>
+            <div class="app-title">SIECLETRAIN BATTLE SIMULATOR</div>
+            <div class="app-subtitle">열차 구성 · 적 편성 · 전투 로그 · 승무원 성장 분석</div>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
-with header_right:
-    if st.button(
-        "🔄 엑셀 새로고침 (Excel Reload)",
-        key="reload_excel",
-        use_container_width=True,
-    ):
-        try:
-            loader.reload_all_data()
-            total_items = sum(len(records) for records in loader.data.values())
-            st.session_state.last_battle_result = None
-            set_flash(
-                "success",
-                f"엑셀 파일에서 총 {total_items:,}건의 데이터를 새로고침했습니다.",
-            )
-            st.rerun()
-        except Exception as exc:
-            st.error(f"엑셀 파일 읽기 중 오류가 발생했습니다: {exc}")
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 show_flash()
 
